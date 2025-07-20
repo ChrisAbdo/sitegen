@@ -1,15 +1,37 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "@/lib/auth-client";
 import { AuthButton } from "@/components/auth-button";
 import { LivePreview } from "@/components/live-preview";
+import { useSearchParams, useRouter } from "next/navigation";
 
 export default function Chat() {
   const [input, setInput] = useState("");
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const conversationId = searchParams.get("c");
+
   const { messages, sendMessage } = useChat();
+  const [isGenerating, setIsGenerating] = useState(false);
+
   const { data: session, isPending } = useSession();
+  const [conversationTitle, setConversationTitle] = useState("");
+
+  // Load conversation details if we have a conversation ID
+  useEffect(() => {
+    if (conversationId && session?.user) {
+      fetch(`/api/conversations/${conversationId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.title) {
+            setConversationTitle(data.title);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [conversationId, session]);
 
   // Extract the most recent AI response for preview
   const getLatestAIResponse = () => {
@@ -25,13 +47,35 @@ export default function Chat() {
 
   const latestAIResponse = getLatestAIResponse();
 
+  const handleNewConversation = () => {
+    router.push("/");
+    window.location.reload(); // Simple refresh to clear state
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header with auth */}
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center justify-between">
-          <h1 className="text-xl font-semibold">AI Website Generator</h1>
-          <AuthButton />
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-semibold">AI Website Generator</h1>
+            {conversationTitle && (
+              <span className="text-sm text-muted-foreground">
+                • {conversationTitle}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-4">
+            {conversationId && (
+              <button
+                onClick={handleNewConversation}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                New Conversation
+              </button>
+            )}
+            <AuthButton />
+          </div>
         </div>
       </header>
 
@@ -56,8 +100,10 @@ export default function Chat() {
             <div className="flex flex-col border-r">
               <div className="p-4 border-b bg-muted/30">
                 <p className="text-sm text-muted-foreground">
-                  Welcome back, <strong>{session.user.name}</strong>! Describe
-                  the website you want to create.
+                  Welcome back, <strong>{session.user.name}</strong>!
+                  {conversationId
+                    ? " Continue editing your website."
+                    : " Describe the website you want to create."}
                 </p>
               </div>
 
@@ -66,15 +112,20 @@ export default function Chat() {
                   <div className="flex items-center justify-center h-full text-center">
                     <div>
                       <h3 className="text-lg font-semibold mb-2">
-                        Start Creating!
+                        {conversationId
+                          ? "Continue Editing"
+                          : "Start Creating!"}
                       </h3>
                       <p className="text-muted-foreground text-sm">
-                        Describe the website you want to build and I'll generate
-                        the HTML for you.
+                        {conversationId
+                          ? "Make changes to your website by describing what you want to modify."
+                          : "Describe the website you want to build and I'll generate the HTML for you."}
                       </p>
                       <p className="text-muted-foreground text-xs mt-2">
-                        Example: "Create a landing page for my restaurant with a
-                        menu section"
+                        Example:{" "}
+                        {conversationId
+                          ? '"Change the main headline to say Your Next Gaming Adventure"'
+                          : '"Create a landing page for my restaurant with a menu section"'}
                       </p>
                     </div>
                   </div>
@@ -117,9 +168,12 @@ export default function Chat() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (!input.trim()) return;
+                  if (!input.trim() || isGenerating) return;
+                  setIsGenerating(true);
                   sendMessage({ text: input });
                   setInput("");
+                  // Reset generating state after a delay (will be improved later)
+                  setTimeout(() => setIsGenerating(false), 3000);
                 }}
                 className="p-4 border-t bg-background/95"
               >
@@ -127,15 +181,24 @@ export default function Chat() {
                   <input
                     className="flex-1 rounded-lg border border-input bg-background px-4 py-2 focus:outline-none focus:ring-2 focus:ring-ring"
                     value={input}
-                    placeholder="Describe the website you want to create..."
+                    placeholder={
+                      conversationId
+                        ? "Describe what you want to change..."
+                        : "Describe the website you want to create..."
+                    }
                     onChange={(e) => setInput(e.currentTarget.value)}
+                    disabled={isGenerating}
                   />
                   <button
                     type="submit"
-                    disabled={!input.trim()}
+                    disabled={!input.trim() || isGenerating}
                     className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Generate
+                    {isGenerating
+                      ? "..."
+                      : conversationId
+                      ? "Edit"
+                      : "Generate"}
                   </button>
                 </div>
               </form>
@@ -177,10 +240,14 @@ export default function Chat() {
                         </svg>
                       </div>
                       <h3 className="text-lg font-semibold mb-2">
-                        No Website Generated Yet
+                        {conversationId
+                          ? "Loading Website..."
+                          : "No Website Generated Yet"}
                       </h3>
                       <p className="text-muted-foreground text-sm">
-                        Start a conversation to generate your first website
+                        {conversationId
+                          ? "Your website will appear here once loaded"
+                          : "Start a conversation to generate your first website"}
                       </p>
                     </div>
                   </div>

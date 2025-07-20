@@ -15,6 +15,13 @@
       "when": 1752987120231,
       "tag": "0001_rapid_sharon_ventura",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1752990110180,
+      "tag": "0002_careful_switch",
+      "breakpoints": true
     }
   ]
 }

@@ -60,17 +60,35 @@ export const verification = pgTable("verification", {
   updatedAt: timestamp("updatedAt").defaultNow(),
 });
 
-// AI Generations table
-export const aiGeneration = pgTable("ai_generation", {
+// Conversations table - tracks website generation sessions
+export const conversation = pgTable("conversation", {
   id: text("id").primaryKey(),
   userId: text("userId")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  title: text("title"), // Optional title for the generation
+  title: text("title"), // Auto-generated from first prompt
+  description: text("description"), // Brief description of the website
+  currentGenerationId: text("currentGenerationId"), // Points to latest version
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+// AI Generations table - now tracks versions within conversations
+export const aiGeneration = pgTable("ai_generation", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversationId")
+    .notNull()
+    .references(() => conversation.id, { onDelete: "cascade" }),
+  userId: text("userId")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  version: integer("version").notNull().default(1), // Version number within conversation
   userPrompt: text("userPrompt").notNull(), // The user's request/prompt
   aiResponse: text("aiResponse").notNull(), // The generated HTML/response
+  previousHtml: text("previousHtml"), // Previous version's HTML for context
   model: text("model").notNull().default("gemini-2.5-flash"), // AI model used
   status: text("status").notNull().default("completed"), // completed, failed, pending
+  isCurrentVersion: boolean("isCurrentVersion").notNull().default(true), // Track current version
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
 });
@@ -87,6 +105,9 @@ export type NewAccount = typeof account.$inferInsert;
 
 export type Verification = typeof verification.$inferSelect;
 export type NewVerification = typeof verification.$inferInsert;
+
+export type Conversation = typeof conversation.$inferSelect;
+export type NewConversation = typeof conversation.$inferInsert;
 
 export type AiGeneration = typeof aiGeneration.$inferSelect;
 export type NewAiGeneration = typeof aiGeneration.$inferInsert;
