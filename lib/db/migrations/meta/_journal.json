@@ -8,6 +8,13 @@
       "when": 1752985675168,
       "tag": "0000_tricky_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1752987120231,
+      "tag": "0001_rapid_sharon_ventura",
+      "breakpoints": true
     }
   ]
 }

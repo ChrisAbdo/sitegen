@@ -60,6 +60,21 @@ export const verification = pgTable("verification", {
   updatedAt: timestamp("updatedAt").defaultNow(),
 });
 
+// AI Generations table
+export const aiGeneration = pgTable("ai_generation", {
+  id: text("id").primaryKey(),
+  userId: text("userId")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  title: text("title"), // Optional title for the generation
+  userPrompt: text("userPrompt").notNull(), // The user's request/prompt
+  aiResponse: text("aiResponse").notNull(), // The generated HTML/response
+  model: text("model").notNull().default("gemini-2.5-flash"), // AI model used
+  status: text("status").notNull().default("completed"), // completed, failed, pending
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
 // Export types for TypeScript
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
@@ -72,3 +87,6 @@ export type NewAccount = typeof account.$inferInsert;
 
 export type Verification = typeof verification.$inferSelect;
 export type NewVerification = typeof verification.$inferInsert;
+
+export type AiGeneration = typeof aiGeneration.$inferSelect;
+export type NewAiGeneration = typeof aiGeneration.$inferInsert;
