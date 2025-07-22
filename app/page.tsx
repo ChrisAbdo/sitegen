@@ -5,16 +5,124 @@ import { useState, useEffect } from "react";
 import { useSession } from "@/lib/auth-client";
 import { AuthButton } from "@/components/auth-button";
 import { LivePreview } from "@/components/live-preview";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { Suspense } from "react";
 
-export default function Chat() {
+function ChatComponent() {
   const [input, setInput] = useState("");
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const conversationId = searchParams.get("c");
+  
+  // Get conversation ID from URL
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    setConversationId(urlParams.get("c"));
+  }, []);
 
-  const { messages, sendMessage } = useChat();
+  const [messages, setMessages] = useState<any[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Custom message sending function that handles conversations
+  const sendMessage = async (input: { text: string }) => {
+    if (isGenerating) return;
+
+    setIsGenerating(true);
+
+    // Add user message immediately
+    const userMessage = {
+      id: Date.now().toString(),
+      role: "user",
+      parts: [{ type: "text", text: input.text }],
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMessage],
+          conversationId: conversationId || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // Check for new conversation ID in response headers
+      const newConversationId = response.headers.get("X-Conversation-ID");
+      if (newConversationId && !conversationId) {
+        router.push(`/?c=${newConversationId}`, { scroll: false });
+      }
+
+      // Handle streaming response
+      const reader = response.body?.getReader();
+      let fullResponse = "";
+      
+      // Create AI message with empty text
+      const aiMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        parts: [{ type: "text", text: "" }],
+      };
+      
+      // Add empty AI message to show streaming
+      setMessages((prev) => [...prev, aiMessage]);
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = new TextDecoder().decode(value);
+          const lines = chunk.split('\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === 'text-delta' && data.delta) {
+                  fullResponse += data.delta;
+                  
+                  // Update the AI message in real-time
+                  setMessages((prev) => 
+                    prev.map((msg) => 
+                      msg.id === aiMessage.id 
+                        ? { ...msg, parts: [{ type: "text", text: fullResponse }] }
+                        : msg
+                    )
+                  );
+                }
+              } catch (e) {
+                // Ignore parse errors
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+      // Add error message
+      const errorMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: "Sorry, there was an error generating your website. Please try again.",
+          },
+        ],
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    }
+
+    setIsGenerating(false);
+  };
 
   const { data: session, isPending } = useSession();
   const [conversationTitle, setConversationTitle] = useState("");
@@ -35,13 +143,13 @@ export default function Chat() {
 
   // Extract the most recent AI response for preview
   const getLatestAIResponse = () => {
-    const aiMessages = messages.filter((m) => m.role === "assistant");
+    const aiMessages = messages.filter((m: any) => m.role === "assistant");
     if (aiMessages.length === 0) return "";
 
     const latestMessage = aiMessages[aiMessages.length - 1];
     return latestMessage.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
       .join("");
   };
 
@@ -146,7 +254,7 @@ export default function Chat() {
                             : "bg-muted"
                         }`}
                       >
-                        {message.parts.map((part, i) => {
+                        {message.parts.map((part: any, i: number) => {
                           switch (part.type) {
                             case "text":
                               return (
@@ -169,11 +277,8 @@ export default function Chat() {
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (!input.trim() || isGenerating) return;
-                  setIsGenerating(true);
                   sendMessage({ text: input });
                   setInput("");
-                  // Reset generating state after a delay (will be improved later)
-                  setTimeout(() => setIsGenerating(false), 3000);
                 }}
                 className="p-4 border-t bg-background/95"
               >
@@ -258,5 +363,17 @@ export default function Chat() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function Chat() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    }>
+      <ChatComponent />
+    </Suspense>
   );
 }

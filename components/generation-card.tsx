@@ -30,12 +30,10 @@ export function GenerationCard({ generation }: GenerationCardProps) {
     <div className="border rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
       <div className="flex justify-between items-start mb-4">
         <div>
-          {generation.title && (
-            <h2 className="text-xl font-semibold mb-2">{generation.title}</h2>
-          )}
           <div className="flex items-center gap-4 text-sm text-gray-500">
             <span>Model: {generation.model}</span>
             <span>Status: {generation.status}</span>
+            <span>Version: {generation.version}</span>
             <span>{new Date(generation.createdAt).toLocaleDateString()}</span>
           </div>
         </div>

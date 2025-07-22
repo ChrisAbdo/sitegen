@@ -6,7 +6,7 @@ import { eq, and } from "drizzle-orm";
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Get the authenticated session
@@ -18,7 +18,7 @@ export async function GET(
       return new Response("Unauthorized", { status: 401 });
     }
 
-    const conversationId = params.id;
+    const conversationId = (await params).id;
 
     // Fetch conversation with current generation
     const conversationResult = await db

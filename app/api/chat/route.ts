@@ -128,13 +128,6 @@ export async function POST(req: Request) {
       ];
     }
 
-    // Generate the website or edit
-    const { text: generatedText } = await generateText({
-      model: google("gemini-2.5-flash"),
-      system: isEdit ? editSystemPrompt : systemPrompt,
-      messages: promptMessages,
-    });
-
     // Mark previous version as not current if this is an edit
     if (isEdit) {
       await db
@@ -148,47 +141,78 @@ export async function POST(req: Request) {
         );
     }
 
-    // Save the new generation to database
-    const generationId = nanoid();
-    try {
-      await db.insert(aiGeneration).values({
-        id: generationId,
-        conversationId: currentConversation.id,
-        userId: session.user.id,
-        version,
-        userPrompt,
-        aiResponse: generatedText,
-        previousHtml,
-        model: "gemini-2.5-flash",
-        status: "completed",
-        isCurrentVersion: true,
-      });
-
-      // Update conversation's current generation ID
-      await db
-        .update(conversation)
-        .set({
-          currentGenerationId: generationId,
-          updatedAt: new Date(),
-        })
-        .where(eq(conversation.id, currentConversation.id));
-    } catch (dbError) {
-      console.error("Error saving to database:", dbError);
-      // Continue even if database save fails
-    }
-
-    // Now create a streaming response for the user
+    // Create streaming response and save the result
     const result = streamText({
       model: google("gemini-2.5-flash"),
       system: isEdit ? editSystemPrompt : systemPrompt,
       messages: promptMessages,
     });
 
-    // Add conversation ID to response headers
-    const response = result.toUIMessageStreamResponse();
-    response.headers.set("X-Conversation-ID", currentConversation.id);
+    // Generate a unique ID for this generation
+    const generationId = nanoid();
+    
+    // Start streaming response but also collect the full text for database
+    let fullText = "";
+    const originalStream = result.toUIMessageStreamResponse();
+    
+    // Create a transform stream to collect the text while streaming
+    const transformStream = new TransformStream({
+      transform(chunk, controller) {
+        // Parse chunk to extract text content
+        const chunkStr = new TextDecoder().decode(chunk);
+        const lines = chunkStr.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'text-delta' && data.delta) {
+                fullText += data.delta;
+              }
+            } catch (e) {
+              // Ignore parse errors
+            }
+          }
+        }
+        
+        controller.enqueue(chunk);
+      },
+      flush() {
+        // Save to database when streaming is complete
+        db.insert(aiGeneration).values({
+          id: generationId,
+          conversationId: currentConversation.id,
+          userId: session.user.id,
+          version,
+          userPrompt,
+          aiResponse: fullText,
+          previousHtml,
+          model: "gemini-2.5-flash",
+          status: "completed",
+          isCurrentVersion: true,
+        }).then(() => {
+          // Update conversation's current generation ID
+          return db
+            .update(conversation)
+            .set({
+              currentGenerationId: generationId,
+              updatedAt: new Date(),
+            })
+            .where(eq(conversation.id, currentConversation.id));
+        }).catch((dbError) => {
+          console.error("Error saving to database:", dbError);
+        });
+      }
+    });
 
-    return response;
+    // Add conversation ID to response headers
+    originalStream.headers.set("X-Conversation-ID", currentConversation.id);
+    
+    // Return the transformed stream
+    return new Response(originalStream.body?.pipeThrough(transformStream), {
+      headers: originalStream.headers,
+      status: originalStream.status,
+    });
   } catch (error) {
     console.error("Chat API error:", error);
     return new Response("Internal Server Error", { status: 500 });
