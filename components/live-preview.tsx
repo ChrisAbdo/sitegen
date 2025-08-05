@@ -1,11 +1,30 @@
 'use client';
 
+import { useState } from 'react';
+
 interface LivePreviewProps {
 	htmlContent: string;
 	generationId: string;
+	isGenerationComplete?: boolean;
+	isGenerating?: boolean;
 }
 
-export function LivePreview({ htmlContent, generationId }: LivePreviewProps) {
+export function LivePreview({
+	htmlContent,
+	generationId,
+	isGenerationComplete = false,
+	isGenerating = false,
+}: LivePreviewProps) {
+	const [isDeploying, setIsDeploying] = useState(false);
+	const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
+	const [deployError, setDeployError] = useState<string | null>(null);
+	const [deployMessage, setDeployMessage] = useState<string | null>(null);
+	const [isMockDeployment, setIsMockDeployment] = useState(false);
+	const [copied, setCopied] = useState(false);
+	const [showUrlInput, setShowUrlInput] = useState(false);
+	const [manualUrl, setManualUrl] = useState('');
+	const [updatingStatus, setUpdatingStatus] = useState(false);
+
 	// Parse HTML from markdown code blocks
 	const extractHtml = (content: string) => {
 		// Remove ```html and ``` markers
@@ -26,44 +45,318 @@ export function LivePreview({ htmlContent, generationId }: LivePreviewProps) {
 
 	const extractedHtml = extractHtml(htmlContent);
 
+	const handleCopyHTML = async () => {
+		try {
+			await navigator.clipboard.writeText(extractedHtml);
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		} catch (error) {
+			console.error('Failed to copy HTML:', error);
+			// Fallback: create a text area and select it
+			const textArea = document.createElement('textarea');
+			textArea.value = extractedHtml;
+			document.body.appendChild(textArea);
+			textArea.select();
+			document.execCommand('copy');
+			document.body.removeChild(textArea);
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		}
+	};
+
+	const handleDownloadHTML = () => {
+		const blob = new Blob([extractedHtml], { type: 'text/html' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `website-${generationId}-${Date.now()}.html`;
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+	};
+
+	const handleDeploy = async () => {
+		setIsDeploying(true);
+		setDeployError(null);
+		setDeployedUrl(null);
+		setDeployMessage(null);
+		setIsMockDeployment(false);
+
+		console.log('🚀 Starting deployment with generationId:', generationId);
+
+		try {
+			const response = await fetch('/api/deploy', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					htmlContent: extractedHtml,
+					siteName: `ai-website-${Date.now()}`,
+					generationId: generationId,
+				}),
+			});
+
+			console.log('📡 Deploy API response status:', response.status);
+
+			if (!response.ok) {
+				throw new Error('Failed to deploy website');
+			}
+
+			const result = await response.json();
+			console.log('📊 Deploy API result:', result);
+
+			setDeployedUrl(result.url);
+			setDeployMessage(result.message || 'Deployment completed');
+			setIsMockDeployment(result.mock || false);
+		} catch (error) {
+			console.error('❌ Deployment error:', error);
+			setDeployError(
+				error instanceof Error ? error.message : 'Failed to deploy',
+			);
+		} finally {
+			setIsDeploying(false);
+		}
+	};
+
+	const handleMarkAsDeployed = async () => {
+		if (generationId === 'preview') return;
+
+		setUpdatingStatus(true);
+		try {
+			const response = await fetch('/api/deploy/status', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					generationId: generationId,
+					deploymentUrl: manualUrl || null,
+				}),
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to update deployment status');
+			}
+
+			setDeployMessage(
+				'✅ Deployment status updated! Check your profile to see the green status.',
+			);
+			setShowUrlInput(false);
+			setManualUrl('');
+		} catch (error) {
+			console.error('Error updating deployment status:', error);
+			setDeployError('Failed to update deployment status');
+		} finally {
+			setUpdatingStatus(false);
+		}
+	};
+
 	return (
 		<div className='h-full flex flex-col'>
-			{generationId !== 'preview' && (
-				<div className='border-b p-3'>
-					<h3 className='font-medium text-gray-700'>Live Preview</h3>
-				</div>
-			)}
-			<div className='flex-1 bg-gray-50 overflow-hidden flex flex-col'>
-				<div className='flex-1 p-4'>
-					<iframe
-						srcDoc={extractedHtml}
-						className='w-full h-full border rounded'
-						title={`Preview of generation ${generationId}`}
-						sandbox='allow-scripts allow-same-origin'
-						style={{
-							backgroundColor: 'white',
-						}}
-					/>
-				</div>
-				{generationId !== 'preview' && (
-					<div className='bg-gray-100 px-3 py-2 border-t'>
-						<div className='flex justify-between items-center text-sm text-gray-600'>
-							<span>Interactive preview with Bootstrap styling</span>
+			{/* Header with Deploy and Manual Options */}
+			<div className='flex-shrink-0 border-b p-2 bg-background'>
+				<div className='flex justify-between items-center mb-2'>
+					<div>
+						{generationId !== 'preview' && (
+							<h3 className='font-medium text-gray-700 text-sm'>
+								Live Preview
+							</h3>
+						)}
+						{isGenerating && (
+							<p className='text-xs text-gray-500'>
+								🔄 Generating website... Deploy button will be enabled when
+								complete.
+							</p>
+						)}
+						{!isGenerating &&
+							!isGenerationComplete &&
+							generationId === 'preview' && (
+								<p className='text-xs text-gray-500'>
+									💡 Generate a website first to enable deployment.
+								</p>
+							)}
+						{!isGenerating &&
+							isGenerationComplete &&
+							generationId !== 'preview' && (
+								<p className='text-xs text-green-600'>
+									✅ Website generated successfully! Deploy button is now
+									active.
+								</p>
+							)}
+					</div>
+					<div className='flex gap-2'>
+						<div className='relative group'>
 							<button
-								onClick={() => {
-									const newWindow = window.open();
-									if (newWindow) {
-										newWindow.document.write(extractedHtml);
-										newWindow.document.close();
-									}
-								}}
-								className='text-blue-600 hover:text-blue-800 underline'
+								onClick={handleCopyHTML}
+								className={`px-3 py-1 text-xs rounded-md transition-colors ${
+									copied
+										? 'bg-green-100 text-green-700 border border-green-300'
+										: 'bg-blue-100 hover:bg-blue-200 text-blue-700 border border-blue-300'
+								}`}
 							>
-								Open in new window
+								{copied ? '✓ Copied!' : 'Copy HTML'}
 							</button>
+							<div className='absolute bottom-full left-0 mb-2 hidden group-hover:block z-10 w-64 p-2 bg-blue-900 text-white text-xs rounded shadow-lg'>
+								<div className='font-semibold mb-1'>🚀 Copy & Deploy:</div>
+								<div>
+									Go to netlify.com/drop → Create "index.html" → Paste → Drag
+									file to deploy instantly!
+								</div>
+							</div>
+						</div>
+						<div className='relative group'>
+							<button
+								onClick={handleDownloadHTML}
+								className='px-3 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 border border-purple-300 text-xs rounded-md transition-colors'
+							>
+								📥 Download
+							</button>
+							<div className='absolute bottom-full left-0 mb-2 hidden group-hover:block z-10 w-64 p-2 bg-purple-900 text-white text-xs rounded shadow-lg'>
+								<div className='font-semibold mb-1'>🚀 Download & Deploy:</div>
+								<div>
+									Drag the downloaded file directly to netlify.com/drop for
+									instant deployment!
+								</div>
+							</div>
+						</div>
+						{generationId !== 'preview' && (
+							<button
+								onClick={() => setShowUrlInput(!showUrlInput)}
+								className='px-3 py-1 bg-green-100 hover:bg-green-200 text-green-700 border border-green-300 text-xs rounded-md transition-colors'
+							>
+								✅ Mark as Deployed
+							</button>
+						)}
+						{deployedUrl && (
+							<a
+								href={deployedUrl}
+								target='_blank'
+								rel='noopener noreferrer'
+								className={`px-2 py-1 text-white text-xs rounded transition-colors ${
+									isMockDeployment
+										? 'bg-yellow-600 hover:bg-yellow-700'
+										: 'bg-green-600 hover:bg-green-700'
+								}`}
+							>
+								{isMockDeployment ? 'Demo URL' : 'Visit Site'}
+							</a>
+						)}
+						<button
+							onClick={handleDeploy}
+							disabled={
+								isDeploying ||
+								!extractedHtml ||
+								generationId === 'preview' ||
+								!isGenerationComplete ||
+								isGenerating
+							}
+							className={`px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 ${
+								isDeploying ||
+								!extractedHtml ||
+								generationId === 'preview' ||
+								!isGenerationComplete ||
+								isGenerating
+									? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+									: 'bg-blue-600 text-white hover:bg-blue-700'
+							}`}
+						>
+							{isDeploying ? (
+								<>
+									<div className='w-2 h-2 border border-white border-t-transparent rounded-full animate-spin' />
+									Deploying...
+								</>
+							) : isGenerating ? (
+								<>
+									<div className='w-2 h-2 border border-gray-400 border-t-transparent rounded-full animate-spin' />
+									Generating...
+								</>
+							) : generationId === 'preview' || !isGenerationComplete ? (
+								'Deploy (Disabled)'
+							) : (
+								'Deploy'
+							)}
+						</button>
+					</div>
+				</div>
+				{deployError && (
+					<div className='mt-1 text-xs text-red-600 bg-red-50 p-1 rounded'>
+						{deployError}
+					</div>
+				)}
+				{deployedUrl && !deployError && (
+					<div
+						className={`mt-1 text-xs p-1 rounded ${
+							isMockDeployment
+								? 'text-yellow-700 bg-yellow-50 border border-yellow-200'
+								: 'text-green-600 bg-green-50'
+						}`}
+					>
+						{isMockDeployment ? '⚠️' : '✅'} {deployMessage}
+						{isMockDeployment && (
+							<div className='mt-1 text-xs text-yellow-600'>
+								Note: This is a preview URL. The site is not actually deployed.
+								To enable real deployments, add your Netlify access token to the
+								environment variables.
+							</div>
+						)}
+					</div>
+				)}
+				{showUrlInput && generationId !== 'preview' && (
+					<div className='mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg'>
+						<div className='text-xs font-semibold text-blue-800 mb-2'>
+							🎉 Deployed manually? Let us know!
+						</div>
+						<div className='space-y-2'>
+							<input
+								type='text'
+								placeholder='Optional: Enter your deployed site URL (e.g., https://your-site.netlify.app)'
+								value={manualUrl}
+								onChange={(e) => setManualUrl(e.target.value)}
+								className='w-full text-xs px-2 py-1 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500'
+							/>
+							<div className='flex gap-2'>
+								<button
+									onClick={handleMarkAsDeployed}
+									disabled={updatingStatus}
+									className='px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+								>
+									{updatingStatus ? 'Updating...' : 'Update Status'}
+								</button>
+								<button
+									onClick={() => setShowUrlInput(false)}
+									className='px-3 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 transition-colors'
+								>
+									Cancel
+								</button>
+							</div>
 						</div>
 					</div>
 				)}
+				{deployMessage && !deployedUrl && !deployError && (
+					<div className='mt-1 text-xs text-green-600 bg-green-50 p-1 rounded'>
+						{deployMessage}
+					</div>
+				)}
+			</div>
+
+			{/* Preview Content - Maximum Space Usage */}
+			<div className='flex-1 bg-gray-50 overflow-hidden'>
+				<div className='h-full p-1'>
+					<div className='h-full rounded border bg-white overflow-hidden'>
+						<iframe
+							srcDoc={extractedHtml}
+							className='w-full h-full border-0'
+							title={`Preview of generation ${generationId}`}
+							sandbox='allow-scripts allow-same-origin allow-forms'
+							style={{
+								backgroundColor: 'white',
+								display: 'block',
+							}}
+						/>
+					</div>
+				</div>
 			</div>
 		</div>
 	);

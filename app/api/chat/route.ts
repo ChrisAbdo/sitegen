@@ -210,6 +210,7 @@ export async function POST(req: Request) {
 
 		// Add conversation ID to response headers
 		originalStream.headers.set('X-Conversation-ID', currentConversation.id);
+		originalStream.headers.set('X-Generation-ID', generationId);
 
 		// Return the transformed stream
 		return new Response(originalStream.body?.pipeThrough(transformStream), {
