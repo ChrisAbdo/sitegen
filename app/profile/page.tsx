@@ -6,6 +6,7 @@ import { useSession } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { UserAvatar } from '@/components/user-avatar';
+import { HtmlEditor } from '@/components/html-editor';
 import {
 	ArrowLeft,
 	Eye,
@@ -68,7 +69,7 @@ function PreviewModal({
 		setIsEditMode(true);
 	};
 
-	const handleSaveAndPreview = async () => {
+	const handleSaveAndPreview = async (newHtml: string) => {
 		setIsSaving(true);
 		try {
 			// Save to database
@@ -79,11 +80,12 @@ function PreviewModal({
 				},
 				body: JSON.stringify({
 					generationId: generationId,
-					htmlContent: editedHtml,
+					htmlContent: newHtml,
 				}),
 			});
 
 			if (response.ok) {
+				setEditedHtml(newHtml);
 				setIsEditMode(false);
 				// You might want to refresh the parent component here
 			} else {
@@ -105,26 +107,14 @@ function PreviewModal({
 
 	return (
 		<div className='fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4'>
-			<div className='bg-background border rounded-lg w-full max-w-6xl h-[80vh] flex flex-col'>
+			<div className='bg-background border rounded-lg w-full max-w-7xl h-[85vh] flex flex-col'>
 				<div className='flex items-center justify-between p-4 border-b'>
 					<h3 className='text-lg font-semibold'>
-						{isEditMode ? 'HTML Editor' : 'Website Preview'}
+						{isEditMode ? 'HTML Editor & Preview' : 'Website Preview'}
 					</h3>
 					<div className='flex items-center gap-2'>
 						{isEditMode ? (
 							<>
-								<Button variant='outline' size='sm' onClick={handleDownload}>
-									<Download className='h-4 w-4 mr-2' />
-									Download
-								</Button>
-								<Button
-									variant='outline'
-									size='sm'
-									onClick={handleSaveAndPreview}
-									disabled={isSaving}
-								>
-									{isSaving ? 'Saving...' : '💾 Save & Preview'}
-								</Button>
 								<Button variant='outline' size='sm' onClick={handleCloseEdit}>
 									✕ Close Editor
 								</Button>
@@ -145,15 +135,37 @@ function PreviewModal({
 						)}
 					</div>
 				</div>
-				<div className='flex-1 overflow-hidden'>
+				<div className='flex-1 overflow-hidden flex'>
 					{isEditMode ? (
-						<textarea
-							value={editedHtml}
-							onChange={(e) => setEditedHtml(e.target.value)}
-							className='w-full h-full p-4 font-mono text-sm border-0 resize-none focus:outline-none bg-background text-foreground'
-							placeholder='Enter your HTML code here...'
-							spellCheck={false}
-						/>
+						<>
+							{/* Left side - HTML Editor */}
+							<div className='w-1/2 border-r'>
+								<HtmlEditor
+									htmlContent={editedHtml}
+									generationId={generationId}
+									onSave={handleSaveAndPreview}
+									onClose={handleCloseEdit}
+									onHtmlChange={setEditedHtml}
+								/>
+							</div>
+							{/* Right side - Live Preview */}
+							<div className='w-1/2 flex flex-col'>
+								<div className='p-3 border-b bg-muted/15 flex-shrink-0'>
+									<h4 className='text-sm font-semibold'>Live Preview</h4>
+									<p className='text-xs text-muted-foreground'>
+										Changes appear here as you edit
+									</p>
+								</div>
+								<div className='flex-1 overflow-hidden'>
+									<iframe
+										srcDoc={editedHtml}
+										className='w-full h-full border-0'
+										title='Website Preview'
+										sandbox='allow-scripts allow-same-origin'
+									/>
+								</div>
+							</div>
+						</>
 					) : (
 						<iframe
 							srcDoc={editedHtml || htmlContent}

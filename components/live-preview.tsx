@@ -8,6 +8,7 @@ interface LivePreviewProps {
 	isGenerationComplete?: boolean;
 	isGenerating?: boolean;
 	onHtmlUpdate?: (newHtml: string) => void;
+	onExpandEditor?: (isExpanded: boolean) => void;
 }
 
 export function LivePreview({
@@ -16,6 +17,7 @@ export function LivePreview({
 	isGenerationComplete = false,
 	isGenerating = false,
 	onHtmlUpdate,
+	onExpandEditor,
 }: LivePreviewProps) {
 	const [isDeploying, setIsDeploying] = useState(false);
 	const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
@@ -50,12 +52,18 @@ export function LivePreview({
 	const handleEditHTML = () => {
 		setEditedHtml(extractedHtml);
 		setIsEditMode(true);
+		if (onExpandEditor) {
+			onExpandEditor(true);
+		}
 	};
 
 	const handleSaveAndPreview = async () => {
 		if (generationId === 'preview') {
 			// For preview mode, just switch back to preview
 			setIsEditMode(false);
+			if (onExpandEditor) {
+				onExpandEditor(false);
+			}
 			return;
 		}
 
@@ -79,6 +87,9 @@ export function LivePreview({
 					onHtmlUpdate(editedHtml);
 				}
 				setIsEditMode(false);
+				if (onExpandEditor) {
+					onExpandEditor(false);
+				}
 			} else {
 				console.error('Failed to save HTML:', response.status);
 				alert('Failed to save HTML. Please try again.');
@@ -94,6 +105,9 @@ export function LivePreview({
 	const handleCloseEdit = () => {
 		setIsEditMode(false);
 		setEditedHtml('');
+		if (onExpandEditor) {
+			onExpandEditor(false);
+		}
 	};
 
 	const handleCopyHTML = async () => {
@@ -341,56 +355,16 @@ export function LivePreview({
 			<div className='flex-1 bg-muted/30 overflow-hidden'>
 				<div className='h-full p-1'>
 					<div className='h-full rounded border bg-background overflow-hidden'>
-						{isEditMode ? (
-							<div className='h-full flex flex-col bg-background'>
-								{/* Edit Mode Header */}
-								<div className='flex items-center justify-between p-3 border-b bg-orange-100 dark:bg-orange-900/30'>
-									<h3 className='text-sm font-semibold text-orange-800 dark:text-orange-200'>
-										HTML Editor
-									</h3>
-									<div className='flex gap-2'>
-										<button
-											onClick={handleDownloadHTML}
-											className='px-3 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 border border-purple-300 text-xs rounded-md transition-colors'
-										>
-											📥 Download
-										</button>
-										<button
-											onClick={handleSaveAndPreview}
-											disabled={isSaving}
-											className='px-3 py-1 bg-green-100 hover:bg-green-200 text-green-700 border border-green-300 text-xs rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
-										>
-											{isSaving ? 'Saving...' : '💾 Save & Preview'}
-										</button>
-										<button
-											onClick={handleCloseEdit}
-											className='px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 text-xs rounded-md transition-colors'
-										>
-											✕ Close
-										</button>
-									</div>
-								</div>
-								{/* Text Editor */}
-								<textarea
-									value={editedHtml}
-									onChange={(e) => setEditedHtml(e.target.value)}
-									className='flex-1 w-full p-4 font-mono text-sm border-0 resize-none focus:outline-none bg-background text-foreground'
-									placeholder='Enter your HTML code here...'
-									spellCheck={false}
-								/>
-							</div>
-						) : (
-							<iframe
-								srcDoc={editedHtml || extractedHtml}
-								className='w-full h-full border-0'
-								title={`Preview of generation ${generationId}`}
-								sandbox='allow-scripts allow-same-origin allow-forms'
-								style={{
-									backgroundColor: 'white',
-									display: 'block',
-								}}
-							/>
-						)}
+						<iframe
+							srcDoc={editedHtml || extractedHtml}
+							className='w-full h-full border-0'
+							title={`Preview of generation ${generationId}`}
+							sandbox='allow-scripts allow-same-origin allow-forms'
+							style={{
+								backgroundColor: 'white',
+								display: 'block',
+							}}
+						/>
 					</div>
 				</div>
 			</div>

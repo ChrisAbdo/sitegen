@@ -8,6 +8,7 @@ import { MultiAuthButton } from '@/components/multi-auth-button';
 import { ProfileDropdown } from '@/components/profile-dropdown';
 import { ConversationSidebar } from '@/components/conversation-sidebar';
 import { LivePreview } from '@/components/live-preview';
+import { HtmlEditor } from '@/components/html-editor';
 import { AIMessage } from '@/components/ai-message';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useRouter } from 'next/navigation';
@@ -59,6 +60,10 @@ function ChatComponent() {
 	const [chatWidth, setChatWidth] = useState(50); // chat width as percentage of remaining space
 	const [isDraggingChat, setIsDraggingChat] = useState(false);
 	const [isMobile, setIsMobile] = useState(false);
+
+	// HTML Editor expansion state
+	const [isEditorExpanded, setIsEditorExpanded] = useState(false);
+	const [currentEditingHtml, setCurrentEditingHtml] = useState('');
 
 	// Check if mobile viewport and set default sidebar state
 	useEffect(() => {
@@ -427,6 +432,40 @@ function ChatComponent() {
 		router.push('/', { scroll: false });
 	};
 
+	// HTML Editor handlers
+	const handleExpandEditor = (isExpanded: boolean) => {
+		setIsEditorExpanded(isExpanded);
+		if (isExpanded) {
+			setCurrentEditingHtml(latestAIResponse);
+		}
+	};
+
+	const handleEditorSave = (newHtml: string) => {
+		// Update the messages with the new HTML
+		setMessages((prevMessages) => {
+			const newMessages = [...prevMessages];
+			// Find the latest AI message and update it
+			for (let i = newMessages.length - 1; i >= 0; i--) {
+				if (newMessages[i].role === 'assistant') {
+					newMessages[i].parts = [{ type: 'text', text: newHtml }];
+					break;
+				}
+			}
+			return newMessages;
+		});
+		setIsEditorExpanded(false);
+		setCurrentEditingHtml('');
+	};
+
+	const handleEditorClose = () => {
+		setIsEditorExpanded(false);
+		setCurrentEditingHtml('');
+	};
+
+	const handleEditorHtmlChange = (newHtml: string) => {
+		setCurrentEditingHtml(newHtml);
+	};
+
 	return (
 		<div className='h-screen bg-background flex flex-col overflow-hidden relative'>
 			{/* Animated Background - Full animation for welcome page, subtle when logged in */}
@@ -677,6 +716,7 @@ function ChatComponent() {
 										generationId={currentGenerationId}
 										isGenerationComplete={isGenerationComplete}
 										isGenerating={isGenerating}
+										onExpandEditor={handleExpandEditor}
 									/>
 								) : (
 									<div className='flex items-center justify-center h-full text-center p-4'>
@@ -847,7 +887,7 @@ function ChatComponent() {
 							</>
 						)}
 
-						{/* Chat Interface */}
+						{/* Chat Interface or HTML Editor */}
 						<div
 							className='flex flex-col border-r h-full bg-background/25 relative z-0'
 							style={{
@@ -856,129 +896,143 @@ function ChatComponent() {
 									: `${chatWidth}%`,
 							}}
 						>
-							{/* Chat Header */}
-							<div className='p-3 border-b bg-muted/15 flex-shrink-0'>
-								<div className='flex items-center justify-between'>
-									<p className='text-sm text-muted-foreground'>
-										Welcome back, <strong>{session.user.name}</strong>!
-										{conversationId
-											? ` Continue editing your website.`
-											: ' Start a new conversation.'}
-									</p>
-									<button
-										onClick={() => setSidebarOpen(!sidebarOpen)}
-										className='text-xs px-2 py-1 hover:bg-muted rounded'
-									>
-										{sidebarOpen ? 'Hide' : 'Show'} Conversations
-									</button>
-								</div>
-							</div>
-
-							{/* Messages Container - Scrollable independently */}
-							<div className='flex-1 overflow-hidden'>
-								<div className='h-full overflow-y-auto p-4 space-y-4 scroll-smooth'>
-									{messages.length === 0 ? (
-										<div className='flex items-center justify-center h-full text-center min-h-[400px]'>
-											<div>
-												<h3 className='text-lg font-semibold mb-2'>
-													{conversationId
-														? 'Continue Editing'
-														: 'Start Creating!'}
-												</h3>
-												<p className='text-muted-foreground text-sm'>
-													{conversationId
-														? 'Make changes to your website by describing what you want to modify.'
-														: "Describe the website you want to build and I'll generate the HTML for you."}
-												</p>
-												<p className='text-muted-foreground text-xs mt-2'>
-													Example:{' '}
-													{conversationId
-														? '"Change the main headline to say Your Next Gaming Adventure"'
-														: '"Create a landing page for my restaurant with a menu section"'}
-												</p>
-											</div>
+							{isEditorExpanded ? (
+								/* HTML Editor Mode */
+								<HtmlEditor
+									htmlContent={currentEditingHtml}
+									generationId={currentGenerationId}
+									onSave={handleEditorSave}
+									onClose={handleEditorClose}
+									onHtmlChange={handleEditorHtmlChange}
+								/>
+							) : (
+								/* Normal Chat Mode */
+								<>
+									{/* Chat Header */}
+									<div className='p-3 border-b bg-muted/15 flex-shrink-0'>
+										<div className='flex items-center justify-between'>
+											<p className='text-sm text-muted-foreground'>
+												Welcome back, <strong>{session.user.name}</strong>!
+												{conversationId
+													? ` Continue editing your website.`
+													: ' Start a new conversation.'}
+											</p>
+											<button
+												onClick={() => setSidebarOpen(!sidebarOpen)}
+												className='text-xs px-2 py-1 hover:bg-muted rounded'
+											>
+												{sidebarOpen ? 'Hide' : 'Show'} Conversations
+											</button>
 										</div>
-									) : (
-										<>
-											{messages.map((message) => (
-												<div
-													key={message.id}
-													className={`flex ${
-														message.role === 'user'
-															? 'justify-end'
-															: 'justify-start'
-													}`}
-												>
-													{message.role === 'user' ? (
-														<div className='bg-primary text-primary-foreground max-w-[80%] px-4 py-2 rounded-lg'>
-															{message.parts.map((part: any, i: number) => {
-																if (part.type === 'text') {
-																	return (
-																		<div
-																			key={`${message.id}-${i}`}
-																			className='whitespace-pre-wrap text-sm'
-																		>
-																			{part.text}
-																		</div>
-																	);
-																}
-															})}
-														</div>
-													) : (
-														<AIMessage
-															text={message.parts
-																.filter((part: any) => part.type === 'text')
-																.map((part: any) => part.text)
-																.join('')}
-														/>
-													)}
-												</div>
-											))}
-											<div ref={messagesEndRef} />
-											{/* Add some bottom padding to ensure last message is visible above input */}
-											<div className='h-4'></div>
-										</>
-									)}
-								</div>
-							</div>
-
-							{/* Fixed Input Form - Always visible at bottom */}
-							<div className='flex-shrink-0 border-t bg-background/85 backdrop-blur-sm'>
-								<form
-									onSubmit={(e) => {
-										e.preventDefault();
-										if (!input.trim() || isGenerating) return;
-										sendMessage({ text: input });
-										setInput('');
-									}}
-									className='p-4'
-								>
-									<div className='flex space-x-2'>
-										<input
-											className='flex-1 rounded-lg border border-input bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
-											value={input}
-											placeholder={
-												conversationId
-													? 'Describe what you want to change...'
-													: 'Describe the website you want to create...'
-											}
-											onChange={(e) => setInput(e.currentTarget.value)}
-											disabled={isGenerating}
-										/>
-										<button
-											type='submit'
-											disabled={!input.trim() || isGenerating}
-											className='px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium'
-										>
-											{isGenerating
-												? '...'
-												: conversationId
-												? 'Edit'
-												: 'Generate'}
-										</button>
 									</div>
-								</form>
-							</div>
+
+									{/* Messages Container - Scrollable independently */}
+									<div className='flex-1 overflow-hidden'>
+										<div className='h-full overflow-y-auto p-4 space-y-4 scroll-smooth'>
+											{messages.length === 0 ? (
+												<div className='flex items-center justify-center h-full text-center min-h-[400px]'>
+													<div>
+														<h3 className='text-lg font-semibold mb-2'>
+															{conversationId
+																? 'Continue Editing'
+																: 'Start Creating!'}
+														</h3>
+														<p className='text-muted-foreground text-sm'>
+															{conversationId
+																? 'Make changes to your website by describing what you want to modify.'
+																: "Describe the website you want to build and I'll generate the HTML for you."}
+														</p>
+														<p className='text-muted-foreground text-xs mt-2'>
+															Example:{' '}
+															{conversationId
+																? '"Change the main headline to say Your Next Gaming Adventure"'
+																: '"Create a landing page for my restaurant with a menu section"'}
+														</p>
+													</div>
+												</div>
+											) : (
+												<>
+													{messages.map((message) => (
+														<div
+															key={message.id}
+															className={`flex ${
+																message.role === 'user'
+																	? 'justify-end'
+																	: 'justify-start'
+															}`}
+														>
+															{message.role === 'user' ? (
+																<div className='bg-primary text-primary-foreground max-w-[80%] px-4 py-2 rounded-lg'>
+																	{message.parts.map((part: any, i: number) => {
+																		if (part.type === 'text') {
+																			return (
+																				<div
+																					key={`${message.id}-${i}`}
+																					className='whitespace-pre-wrap text-sm'
+																				>
+																					{part.text}
+																				</div>
+																			);
+																		}
+																	})}
+																</div>
+															) : (
+																<AIMessage
+																	text={message.parts
+																		.filter((part: any) => part.type === 'text')
+																		.map((part: any) => part.text)
+																		.join('')}
+																/>
+															)}
+														</div>
+													))}
+													<div ref={messagesEndRef} />
+													{/* Add some bottom padding to ensure last message is visible above input */}
+													<div className='h-4'></div>
+												</>
+											)}
+										</div>
+									</div>
+
+									{/* Fixed Input Form - Always visible at bottom */}
+									<div className='flex-shrink-0 border-t bg-background/85 backdrop-blur-sm'>
+										<form
+											onSubmit={(e) => {
+												e.preventDefault();
+												if (!input.trim() || isGenerating) return;
+												sendMessage({ text: input });
+												setInput('');
+											}}
+											className='p-4'
+										>
+											<div className='flex space-x-2'>
+												<input
+													className='flex-1 rounded-lg border border-input bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
+													value={input}
+													placeholder={
+														conversationId
+															? 'Describe what you want to change...'
+															: 'Describe the website you want to create...'
+													}
+													onChange={(e) => setInput(e.currentTarget.value)}
+													disabled={isGenerating}
+												/>
+												<button
+													type='submit'
+													disabled={!input.trim() || isGenerating}
+													className='px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium'
+												>
+													{isGenerating
+														? '...'
+														: conversationId
+														? 'Edit'
+														: 'Generate'}
+												</button>
+											</div>
+										</form>
+									</div>
+								</>
+							)}
 						</div>
 
 						{/* Chat Resize Handle */}
@@ -1011,6 +1065,7 @@ function ChatComponent() {
 										generationId={currentGenerationId}
 										isGenerationComplete={isGenerationComplete}
 										isGenerating={isGenerating}
+										onExpandEditor={handleExpandEditor}
 									/>
 								) : (
 									<div className='flex items-center justify-center h-full text-center p-8'>
