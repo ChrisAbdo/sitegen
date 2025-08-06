@@ -51,6 +51,13 @@ function PreviewModal({
 	const [editedHtml, setEditedHtml] = useState('');
 	const [isSaving, setIsSaving] = useState(false);
 
+	// Initialize editedHtml when the modal opens or htmlContent changes
+	useEffect(() => {
+		if (isOpen && htmlContent && !editedHtml) {
+			setEditedHtml(htmlContent);
+		}
+	}, [isOpen, htmlContent, editedHtml]);
+
 	if (!isOpen) return null;
 
 	const handleDownload = () => {
@@ -65,7 +72,6 @@ function PreviewModal({
 	};
 
 	const handleEditHTML = () => {
-		setEditedHtml(htmlContent);
 		setIsEditMode(true);
 	};
 

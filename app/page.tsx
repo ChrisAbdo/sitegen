@@ -453,8 +453,10 @@ function ChatComponent() {
 			}
 			return newMessages;
 		});
-		setIsEditorExpanded(false);
-		setCurrentEditingHtml('');
+		// Don't close the editor after saving - keep it open
+		// setIsEditorExpanded(false);
+		// Update the current editing HTML to reflect the saved changes
+		setCurrentEditingHtml(newHtml);
 	};
 
 	const handleEditorClose = () => {
