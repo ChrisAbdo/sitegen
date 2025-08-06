@@ -46,10 +46,15 @@ function PreviewModal({
 	htmlContent,
 	generationId,
 }: PreviewModalProps) {
+	const [isEditMode, setIsEditMode] = useState(false);
+	const [editedHtml, setEditedHtml] = useState('');
+	const [isSaving, setIsSaving] = useState(false);
+
 	if (!isOpen) return null;
 
 	const handleDownload = () => {
-		const blob = new Blob([htmlContent], { type: 'text/html' });
+		const htmlToDownload = editedHtml || htmlContent;
+		const blob = new Blob([htmlToDownload], { type: 'text/html' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
@@ -58,28 +63,105 @@ function PreviewModal({
 		URL.revokeObjectURL(url);
 	};
 
+	const handleEditHTML = () => {
+		setEditedHtml(htmlContent);
+		setIsEditMode(true);
+	};
+
+	const handleSaveAndPreview = async () => {
+		setIsSaving(true);
+		try {
+			// Save to database
+			const response = await fetch('/api/generations/update-html', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					generationId: generationId,
+					htmlContent: editedHtml,
+				}),
+			});
+
+			if (response.ok) {
+				setIsEditMode(false);
+				// You might want to refresh the parent component here
+			} else {
+				console.error('Failed to save HTML:', response.status);
+				alert('Failed to save HTML. Please try again.');
+			}
+		} catch (error) {
+			console.error('Error saving HTML:', error);
+			alert('Error saving HTML. Please try again.');
+		} finally {
+			setIsSaving(false);
+		}
+	};
+
+	const handleCloseEdit = () => {
+		setIsEditMode(false);
+		setEditedHtml('');
+	};
+
 	return (
 		<div className='fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4'>
 			<div className='bg-background border rounded-lg w-full max-w-6xl h-[80vh] flex flex-col'>
 				<div className='flex items-center justify-between p-4 border-b'>
-					<h3 className='text-lg font-semibold'>Website Preview</h3>
+					<h3 className='text-lg font-semibold'>
+						{isEditMode ? 'HTML Editor' : 'Website Preview'}
+					</h3>
 					<div className='flex items-center gap-2'>
-						<Button variant='outline' size='sm' onClick={handleDownload}>
-							<Download className='h-4 w-4 mr-2' />
-							Download
-						</Button>
-						<Button variant='outline' size='sm' onClick={onClose}>
-							Close
-						</Button>
+						{isEditMode ? (
+							<>
+								<Button variant='outline' size='sm' onClick={handleDownload}>
+									<Download className='h-4 w-4 mr-2' />
+									Download
+								</Button>
+								<Button
+									variant='outline'
+									size='sm'
+									onClick={handleSaveAndPreview}
+									disabled={isSaving}
+								>
+									{isSaving ? 'Saving...' : '💾 Save & Preview'}
+								</Button>
+								<Button variant='outline' size='sm' onClick={handleCloseEdit}>
+									✕ Close Editor
+								</Button>
+							</>
+						) : (
+							<>
+								<Button variant='outline' size='sm' onClick={handleDownload}>
+									<Download className='h-4 w-4 mr-2' />
+									Download
+								</Button>
+								<Button variant='outline' size='sm' onClick={handleEditHTML}>
+									✏️ Edit HTML
+								</Button>
+								<Button variant='outline' size='sm' onClick={onClose}>
+									Close
+								</Button>
+							</>
+						)}
 					</div>
 				</div>
 				<div className='flex-1 overflow-hidden'>
-					<iframe
-						srcDoc={htmlContent}
-						className='w-full h-full border-0'
-						title='Website Preview'
-						sandbox='allow-scripts allow-same-origin'
-					/>
+					{isEditMode ? (
+						<textarea
+							value={editedHtml}
+							onChange={(e) => setEditedHtml(e.target.value)}
+							className='w-full h-full p-4 font-mono text-sm border-0 resize-none focus:outline-none bg-background text-foreground'
+							placeholder='Enter your HTML code here...'
+							spellCheck={false}
+						/>
+					) : (
+						<iframe
+							srcDoc={editedHtml || htmlContent}
+							className='w-full h-full border-0'
+							title='Website Preview'
+							sandbox='allow-scripts allow-same-origin'
+						/>
+					)}
 				</div>
 			</div>
 		</div>
@@ -344,7 +426,7 @@ export default function ProfilePage() {
 						disabled={loading}
 						className='flex items-center gap-2 ml-auto'
 					>
-						{loading ? '🔄' : '🔄'} Refresh
+						Refresh
 					</Button>
 				</div>
 

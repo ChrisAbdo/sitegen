@@ -7,6 +7,7 @@ interface LivePreviewProps {
 	generationId: string;
 	isGenerationComplete?: boolean;
 	isGenerating?: boolean;
+	onHtmlUpdate?: (newHtml: string) => void;
 }
 
 export function LivePreview({
@@ -14,6 +15,7 @@ export function LivePreview({
 	generationId,
 	isGenerationComplete = false,
 	isGenerating = false,
+	onHtmlUpdate,
 }: LivePreviewProps) {
 	const [isDeploying, setIsDeploying] = useState(false);
 	const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
@@ -21,9 +23,9 @@ export function LivePreview({
 	const [deployMessage, setDeployMessage] = useState<string | null>(null);
 	const [isMockDeployment, setIsMockDeployment] = useState(false);
 	const [copied, setCopied] = useState(false);
-	const [showUrlInput, setShowUrlInput] = useState(false);
-	const [manualUrl, setManualUrl] = useState('');
-	const [updatingStatus, setUpdatingStatus] = useState(false);
+	const [isEditMode, setIsEditMode] = useState(false);
+	const [editedHtml, setEditedHtml] = useState('');
+	const [isSaving, setIsSaving] = useState(false);
 
 	// Parse HTML from markdown code blocks
 	const extractHtml = (content: string) => {
@@ -45,16 +47,66 @@ export function LivePreview({
 
 	const extractedHtml = extractHtml(htmlContent);
 
-	const handleCopyHTML = async () => {
+	const handleEditHTML = () => {
+		setEditedHtml(extractedHtml);
+		setIsEditMode(true);
+	};
+
+	const handleSaveAndPreview = async () => {
+		if (generationId === 'preview') {
+			// For preview mode, just switch back to preview
+			setIsEditMode(false);
+			return;
+		}
+
+		setIsSaving(true);
 		try {
-			await navigator.clipboard.writeText(extractedHtml);
+			// Save to database
+			const response = await fetch('/api/generations/update-html', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					generationId: generationId,
+					htmlContent: editedHtml,
+				}),
+			});
+
+			if (response.ok) {
+				// Update the parent component with new HTML
+				if (onHtmlUpdate) {
+					onHtmlUpdate(editedHtml);
+				}
+				setIsEditMode(false);
+			} else {
+				console.error('Failed to save HTML:', response.status);
+				alert('Failed to save HTML. Please try again.');
+			}
+		} catch (error) {
+			console.error('Error saving HTML:', error);
+			alert('Error saving HTML. Please try again.');
+		} finally {
+			setIsSaving(false);
+		}
+	};
+
+	const handleCloseEdit = () => {
+		setIsEditMode(false);
+		setEditedHtml('');
+	};
+
+	const handleCopyHTML = async () => {
+		const htmlToCopy = editedHtml || extractedHtml;
+		try {
+			await navigator.clipboard.writeText(htmlToCopy);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 		} catch (error) {
 			console.error('Failed to copy HTML:', error);
 			// Fallback: create a text area and select it
 			const textArea = document.createElement('textarea');
-			textArea.value = extractedHtml;
+			textArea.value = htmlToCopy;
 			document.body.appendChild(textArea);
 			textArea.select();
 			document.execCommand('copy');
@@ -65,7 +117,8 @@ export function LivePreview({
 	};
 
 	const handleDownloadHTML = () => {
-		const blob = new Blob([extractedHtml], { type: 'text/html' });
+		const htmlToDownload = editedHtml || extractedHtml;
+		const blob = new Blob([htmlToDownload], { type: 'text/html' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
@@ -92,7 +145,7 @@ export function LivePreview({
 					'Content-Type': 'application/json',
 				},
 				body: JSON.stringify({
-					htmlContent: extractedHtml,
+					htmlContent: editedHtml || extractedHtml,
 					siteName: `ai-website-${Date.now()}`,
 					generationId: generationId,
 				}),
@@ -117,39 +170,6 @@ export function LivePreview({
 			);
 		} finally {
 			setIsDeploying(false);
-		}
-	};
-
-	const handleMarkAsDeployed = async () => {
-		if (generationId === 'preview') return;
-
-		setUpdatingStatus(true);
-		try {
-			const response = await fetch('/api/deploy/status', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify({
-					generationId: generationId,
-					deploymentUrl: manualUrl || null,
-				}),
-			});
-
-			if (!response.ok) {
-				throw new Error('Failed to update deployment status');
-			}
-
-			setDeployMessage(
-				'✅ Deployment status updated! Check your profile to see the green status.',
-			);
-			setShowUrlInput(false);
-			setManualUrl('');
-		} catch (error) {
-			console.error('Error updating deployment status:', error);
-			setDeployError('Failed to update deployment status');
-		} finally {
-			setUpdatingStatus(false);
 		}
 	};
 
@@ -221,14 +241,21 @@ export function LivePreview({
 								</div>
 							</div>
 						</div>
-						{generationId !== 'preview' && (
+						<div className='relative group'>
 							<button
-								onClick={() => setShowUrlInput(!showUrlInput)}
-								className='px-3 py-1 bg-green-100 hover:bg-green-200 text-green-700 border border-green-300 text-xs rounded-md transition-colors'
+								onClick={handleEditHTML}
+								className='px-3 py-1 bg-orange-100 hover:bg-orange-200 text-orange-700 border border-orange-300 text-xs rounded-md transition-colors'
 							>
-								✅ Mark as Deployed
+								✏️ Edit HTML
 							</button>
-						)}
+							<div className='absolute bottom-full left-0 mb-2 hidden group-hover:block z-10 w-64 p-2 bg-orange-900 text-white text-xs rounded shadow-lg'>
+								<div className='font-semibold mb-1'>✏️ Edit HTML:</div>
+								<div>
+									Switch to text editor mode to modify the HTML code directly
+									and save changes.
+								</div>
+							</div>
+						</div>
 						{deployedUrl && (
 							<a
 								href={deployedUrl}
@@ -247,14 +274,14 @@ export function LivePreview({
 							onClick={handleDeploy}
 							disabled={
 								isDeploying ||
-								!extractedHtml ||
+								(!extractedHtml && !editedHtml) ||
 								generationId === 'preview' ||
 								!isGenerationComplete ||
 								isGenerating
 							}
 							className={`px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 ${
 								isDeploying ||
-								!extractedHtml ||
+								(!extractedHtml && !editedHtml) ||
 								generationId === 'preview' ||
 								!isGenerationComplete ||
 								isGenerating
@@ -303,37 +330,6 @@ export function LivePreview({
 						)}
 					</div>
 				)}
-				{showUrlInput && generationId !== 'preview' && (
-					<div className='mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg'>
-						<div className='text-xs font-semibold text-blue-800 mb-2'>
-							🎉 Deployed manually? Let us know!
-						</div>
-						<div className='space-y-2'>
-							<input
-								type='text'
-								placeholder='Optional: Enter your deployed site URL (e.g., https://your-site.netlify.app)'
-								value={manualUrl}
-								onChange={(e) => setManualUrl(e.target.value)}
-								className='w-full text-xs px-2 py-1 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500'
-							/>
-							<div className='flex gap-2'>
-								<button
-									onClick={handleMarkAsDeployed}
-									disabled={updatingStatus}
-									className='px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
-								>
-									{updatingStatus ? 'Updating...' : 'Update Status'}
-								</button>
-								<button
-									onClick={() => setShowUrlInput(false)}
-									className='px-3 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 transition-colors'
-								>
-									Cancel
-								</button>
-							</div>
-						</div>
-					</div>
-				)}
 				{deployMessage && !deployedUrl && !deployError && (
 					<div className='mt-1 text-xs text-green-600 bg-green-50 p-1 rounded'>
 						{deployMessage}
@@ -342,19 +338,59 @@ export function LivePreview({
 			</div>
 
 			{/* Preview Content - Maximum Space Usage */}
-			<div className='flex-1 bg-gray-50 overflow-hidden'>
+			<div className='flex-1 bg-muted/30 overflow-hidden'>
 				<div className='h-full p-1'>
-					<div className='h-full rounded border bg-white overflow-hidden'>
-						<iframe
-							srcDoc={extractedHtml}
-							className='w-full h-full border-0'
-							title={`Preview of generation ${generationId}`}
-							sandbox='allow-scripts allow-same-origin allow-forms'
-							style={{
-								backgroundColor: 'white',
-								display: 'block',
-							}}
-						/>
+					<div className='h-full rounded border bg-background overflow-hidden'>
+						{isEditMode ? (
+							<div className='h-full flex flex-col bg-background'>
+								{/* Edit Mode Header */}
+								<div className='flex items-center justify-between p-3 border-b bg-orange-100 dark:bg-orange-900/30'>
+									<h3 className='text-sm font-semibold text-orange-800 dark:text-orange-200'>
+										HTML Editor
+									</h3>
+									<div className='flex gap-2'>
+										<button
+											onClick={handleDownloadHTML}
+											className='px-3 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 border border-purple-300 text-xs rounded-md transition-colors'
+										>
+											📥 Download
+										</button>
+										<button
+											onClick={handleSaveAndPreview}
+											disabled={isSaving}
+											className='px-3 py-1 bg-green-100 hover:bg-green-200 text-green-700 border border-green-300 text-xs rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+										>
+											{isSaving ? 'Saving...' : '💾 Save & Preview'}
+										</button>
+										<button
+											onClick={handleCloseEdit}
+											className='px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 text-xs rounded-md transition-colors'
+										>
+											✕ Close
+										</button>
+									</div>
+								</div>
+								{/* Text Editor */}
+								<textarea
+									value={editedHtml}
+									onChange={(e) => setEditedHtml(e.target.value)}
+									className='flex-1 w-full p-4 font-mono text-sm border-0 resize-none focus:outline-none bg-background text-foreground'
+									placeholder='Enter your HTML code here...'
+									spellCheck={false}
+								/>
+							</div>
+						) : (
+							<iframe
+								srcDoc={editedHtml || extractedHtml}
+								className='w-full h-full border-0'
+								title={`Preview of generation ${generationId}`}
+								sandbox='allow-scripts allow-same-origin allow-forms'
+								style={{
+									backgroundColor: 'white',
+									display: 'block',
+								}}
+							/>
+						)}
 					</div>
 				</div>
 			</div>

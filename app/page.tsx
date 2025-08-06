@@ -57,14 +57,19 @@ function ChatComponent() {
 	// Resizable panels state
 	const [sidebarWidth, setSidebarWidth] = useState(300); // sidebar width in pixels
 	const [chatWidth, setChatWidth] = useState(50); // chat width as percentage of remaining space
-	const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
 	const [isDraggingChat, setIsDraggingChat] = useState(false);
 	const [isMobile, setIsMobile] = useState(false);
 
-	// Check if mobile viewport
+	// Check if mobile viewport and set default sidebar state
 	useEffect(() => {
 		const checkMobile = () => {
-			setIsMobile(window.innerWidth < 768); // md breakpoint
+			const isMobileScreen = window.innerWidth < 768; // md breakpoint
+			setIsMobile(isMobileScreen);
+
+			// Hide sidebar by default on mobile
+			if (isMobileScreen && sidebarOpen) {
+				setSidebarOpen(false);
+			}
 		};
 
 		checkMobile();
@@ -103,24 +108,12 @@ function ChatComponent() {
 	}, [messages]);
 
 	// Mouse event handlers for resizing panels
-	const handleSidebarMouseDown = (e: React.MouseEvent) => {
-		if (isMobile) return; // Disable on mobile
-		e.preventDefault();
-		setIsDraggingSidebar(true);
-	};
-
 	const handleChatMouseDown = (e: React.MouseEvent) => {
 		e.preventDefault();
 		setIsDraggingChat(true);
 	};
 
 	// Touch event handlers for mobile support
-	const handleSidebarTouchStart = (e: React.TouchEvent) => {
-		if (isMobile) return; // Disable on mobile
-		e.preventDefault();
-		setIsDraggingSidebar(true);
-	};
-
 	const handleChatTouchStart = (e: React.TouchEvent) => {
 		e.preventDefault();
 		setIsDraggingChat(true);
@@ -134,10 +127,6 @@ function ChatComponent() {
 		const handleMove = (e: MouseEvent | TouchEvent) => {
 			const clientX = getClientX(e);
 
-			if (isDraggingSidebar && !isMobile) {
-				const newWidth = Math.max(200, Math.min(600, clientX));
-				setSidebarWidth(newWidth);
-			}
 			if (isDraggingChat) {
 				const containerRect = document
 					.querySelector('.resizable-container')
@@ -157,11 +146,10 @@ function ChatComponent() {
 		};
 
 		const handleEnd = () => {
-			setIsDraggingSidebar(false);
 			setIsDraggingChat(false);
 		};
 
-		if (isDraggingSidebar || isDraggingChat) {
+		if (isDraggingChat) {
 			// Mouse events
 			document.addEventListener('mousemove', handleMove);
 			document.addEventListener('mouseup', handleEnd);
@@ -181,7 +169,7 @@ function ChatComponent() {
 				document.body.style.userSelect = 'auto';
 			};
 		}
-	}, [isDraggingSidebar, isDraggingChat, sidebarWidth, sidebarOpen, isMobile]);
+	}, [isDraggingChat, sidebarWidth, sidebarOpen, isMobile]);
 
 	// Custom message sending function that handles conversations
 	const sendMessage = async (input: { text: string }) => {
@@ -539,7 +527,7 @@ function ChatComponent() {
 			</div>
 
 			{/* Fixed Header */}
-			<header className='flex items-center justify-between p-4 border-b bg-background/80 backdrop-blur-sm flex-shrink-0 z-10 relative'>
+			<header className='flex items-center justify-between p-4 border-b bg-background/80 backdrop-blur-sm flex-shrink-0 z-20 relative'>
 				<div className='flex items-center gap-6'>
 					<div className='flex items-center gap-2'>
 						<img src='/globe.svg' alt='SiteGen Logo' className='w-6 h-6' />
@@ -597,7 +585,7 @@ function ChatComponent() {
 
 				{/* Mobile Navigation Menu */}
 				{mobileMenuOpen && (
-					<div className='absolute top-full left-0 right-0 bg-background border-b md:hidden'>
+					<div className='absolute top-full left-0 right-0 bg-background/95 backdrop-blur-md border-b md:hidden z-40 shadow-lg'>
 						<nav className='flex flex-col p-4 gap-4'>
 							<Link
 								href='/docs'
@@ -635,22 +623,219 @@ function ChatComponent() {
 						</p>
 						<MultiAuthButton />
 					</div>
+				) : isMobile ? (
+					// Mobile Layout - Vertical Stack
+					<div
+						className={`flex flex-col h-full bg-background/15 resizable-container ${
+							isDraggingChat ? 'dragging' : ''
+						}`}
+					>
+						{/* Conversation Sidebar - Mobile Overlay */}
+						{sidebarOpen && (
+							<>
+								<div className='fixed z-30 h-full w-80 max-w-[80vw] shadow-lg bg-background/30 border-r'>
+									<ConversationSidebar
+										currentConversationId={conversationId}
+										onConversationSelect={handleConversationSelect}
+										onNewConversation={handleNewConversation}
+										refreshTrigger={sidebarRefreshTrigger}
+									/>
+								</div>
+								{/* Mobile overlay to close sidebar */}
+								<div
+									className='fixed inset-0 bg-black/20 z-20'
+									onClick={() => setSidebarOpen(false)}
+								/>
+							</>
+						)}
+
+						{/* Live Preview - Top Half on Mobile */}
+						<div className='flex flex-col h-1/2 bg-background/25 relative z-0'>
+							{/* Preview Header */}
+							<div className='p-3 border-b bg-muted/15 flex-shrink-0'>
+								<div className='flex items-center justify-between'>
+									<div>
+										<h2 className='text-sm font-semibold'>Live Preview</h2>
+										<p className='text-xs text-muted-foreground'>
+											Your generated website will appear here
+										</p>
+									</div>
+									<button
+										onClick={() => setSidebarOpen(!sidebarOpen)}
+										className='text-xs px-2 py-1 hover:bg-muted rounded'
+									>
+										{sidebarOpen ? 'Hide' : 'Show'} Conversations
+									</button>
+								</div>
+							</div>
+
+							{/* Preview Content */}
+							<div className='flex-1 overflow-hidden'>
+								{latestAIResponse ? (
+									<LivePreview
+										htmlContent={latestAIResponse}
+										generationId={currentGenerationId}
+										isGenerationComplete={isGenerationComplete}
+										isGenerating={isGenerating}
+									/>
+								) : (
+									<div className='flex items-center justify-center h-full text-center p-4'>
+										<div>
+											<div className='w-12 h-12 mx-auto mb-3 rounded-lg bg-muted flex items-center justify-center'>
+												<svg
+													className='w-6 h-6 text-muted-foreground'
+													fill='none'
+													stroke='currentColor'
+													viewBox='0 0 24 24'
+												>
+													<path
+														strokeLinecap='round'
+														strokeLinejoin='round'
+														strokeWidth={2}
+														d='M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4'
+													/>
+												</svg>
+											</div>
+											<h3 className='text-sm font-semibold mb-1'>
+												{conversationId
+													? 'Loading Website...'
+													: 'No Website Generated Yet'}
+											</h3>
+											<p className='text-muted-foreground text-xs'>
+												{conversationId
+													? 'Your website will appear here once loaded'
+													: 'Start a conversation to generate your first website'}
+											</p>
+										</div>
+									</div>
+								)}
+							</div>
+						</div>
+
+						{/* Chat Interface - Bottom Half on Mobile */}
+						<div className='flex flex-col h-1/2 bg-background/25 border-t relative z-0'>
+							{/* Chat Header */}
+							<div className='p-3 border-b bg-muted/15 flex-shrink-0'>
+								<p className='text-sm text-muted-foreground'>
+									Welcome back, <strong>{session.user.name}</strong>!
+									{conversationId
+										? ` Continue editing your website.`
+										: ' Start a new conversation.'}
+								</p>
+							</div>
+
+							{/* Messages Container */}
+							<div className='flex-1 overflow-hidden'>
+								<div className='h-full overflow-y-auto p-4 space-y-4 scroll-smooth'>
+									{messages.length === 0 ? (
+										<div className='flex items-center justify-center h-full text-center'>
+											<div>
+												<h3 className='text-sm font-semibold mb-2'>
+													{conversationId
+														? 'Continue Editing'
+														: 'Start Creating!'}
+												</h3>
+												<p className='text-muted-foreground text-xs'>
+													{conversationId
+														? 'Make changes to your website by describing what you want to modify.'
+														: "Describe the website you want to build and I'll generate the HTML for you."}
+												</p>
+											</div>
+										</div>
+									) : (
+										<>
+											{messages.map((message) => (
+												<div
+													key={message.id}
+													className={`flex ${
+														message.role === 'user'
+															? 'justify-end'
+															: 'justify-start'
+													}`}
+												>
+													{message.role === 'user' ? (
+														<div className='bg-primary text-primary-foreground max-w-[80%] px-4 py-2 rounded-lg'>
+															{message.parts.map((part: any, i: number) => {
+																if (part.type === 'text') {
+																	return (
+																		<div
+																			key={`${message.id}-${i}`}
+																			className='whitespace-pre-wrap text-sm'
+																		>
+																			{part.text}
+																		</div>
+																	);
+																}
+															})}
+														</div>
+													) : (
+														<AIMessage
+															text={message.parts
+																.filter((part: any) => part.type === 'text')
+																.map((part: any) => part.text)
+																.join('')}
+														/>
+													)}
+												</div>
+											))}
+											<div ref={messagesEndRef} />
+										</>
+									)}
+								</div>
+							</div>
+
+							{/* Input Form */}
+							<div className='flex-shrink-0 border-t bg-background/85 backdrop-blur-sm'>
+								<form
+									onSubmit={(e) => {
+										e.preventDefault();
+										if (!input.trim() || isGenerating) return;
+										sendMessage({ text: input });
+										setInput('');
+									}}
+									className='p-4'
+								>
+									<div className='flex space-x-2'>
+										<input
+											className='flex-1 rounded-lg border border-input bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
+											value={input}
+											placeholder={
+												conversationId
+													? 'Describe what you want to change...'
+													: 'Describe the website you want to create...'
+											}
+											onChange={(e) => setInput(e.currentTarget.value)}
+											disabled={isGenerating}
+										/>
+										<button
+											type='submit'
+											disabled={!input.trim() || isGenerating}
+											className='px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium'
+										>
+											{isGenerating
+												? '...'
+												: conversationId
+												? 'Edit'
+												: 'Generate'}
+										</button>
+									</div>
+								</form>
+							</div>
+						</div>
+					</div>
 				) : (
+					// Desktop Layout - Horizontal
 					<div
 						className={`flex h-full bg-background/15 resizable-container ${
-							isDraggingSidebar || isDraggingChat ? 'dragging' : ''
+							isDraggingChat ? 'dragging' : ''
 						}`}
 					>
 						{/* Conversation Sidebar */}
 						{sidebarOpen && (
 							<>
 								<div
-									className={`bg-background/30 border-r ${
-										isMobile
-											? 'absolute z-20 h-full w-80 max-w-[80vw] shadow-lg'
-											: 'relative'
-									}`}
-									style={!isMobile ? { width: `${sidebarWidth}px` } : {}}
+									className='bg-background/30 border-r relative'
+									style={{ width: `${sidebarWidth}px` }}
 								>
 									<ConversationSidebar
 										currentConversationId={conversationId}
@@ -659,40 +844,17 @@ function ChatComponent() {
 										refreshTrigger={sidebarRefreshTrigger}
 									/>
 								</div>
-								{/* Sidebar Resize Handle - Desktop only */}
-								{!isMobile && (
-									<div
-										className='w-1 bg-border hover:bg-primary/50 cursor-col-resize transition-colors resize-handle relative group'
-										onMouseDown={handleSidebarMouseDown}
-										onTouchStart={handleSidebarTouchStart}
-									>
-										<div className='absolute inset-y-0 -left-1 -right-1 group-hover:bg-primary/20'></div>
-									</div>
-								)}
-								{/* Mobile overlay to close sidebar */}
-								{isMobile && (
-									<div
-										className='absolute inset-0 bg-black/20 z-10'
-										onClick={() => setSidebarOpen(false)}
-									/>
-								)}
 							</>
 						)}
 
-						{/* Left Side - Chat Interface */}
+						{/* Chat Interface */}
 						<div
 							className='flex flex-col border-r h-full bg-background/25 relative z-0'
-							style={
-								!isMobile
-									? {
-											width: sidebarOpen
-												? `calc((100% - ${sidebarWidth}px - 4px) * ${
-														chatWidth / 100
-												  })`
-												: `${chatWidth}%`,
-									  }
-									: { width: `${chatWidth}%` }
-							}
+							style={{
+								width: sidebarOpen
+									? `calc((100% - ${sidebarWidth}px) * ${chatWidth / 100})`
+									: `${chatWidth}%`,
+							}}
 						>
 							{/* Chat Header */}
 							<div className='p-3 border-b bg-muted/15 flex-shrink-0'>
