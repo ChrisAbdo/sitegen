@@ -232,3 +232,52 @@
 .animate-spin-slow {
 	animation: spin-slow 8s linear infinite;
 }
+
+/* Resizable panel styles */
+.dragging {
+	user-select: none;
+	cursor: col-resize !important;
+}
+
+.dragging * {
+	pointer-events: none;
+}
+
+.resize-handle {
+	position: relative;
+	z-index: 10;
+	transition: all 0.2s ease;
+}
+
+.resize-handle::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: -2px;
+	right: -2px;
+	background: transparent;
+	transition: background-color 0.2s ease;
+}
+
+.resize-handle:hover::before {
+	background: rgba(var(--primary-rgb, 59 130 246), 0.1);
+}
+
+.resize-handle::after {
+	content: '';
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	width: 3px;
+	height: 20px;
+	background: rgba(var(--border-rgb, 148 163 184), 0.5);
+	border-radius: 2px;
+	opacity: 0;
+	transition: opacity 0.2s ease;
+}
+
+.resize-handle:hover::after {
+	opacity: 1;
+}

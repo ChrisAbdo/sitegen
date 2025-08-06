@@ -42,7 +42,7 @@ export function MultiAuthButton() {
 	const { data: session, isPending } = useSession();
 	const [isSigningIn, setIsSigningIn] = useState<string | null>(null);
 
-	const handleSignIn = async (provider: 'github' | 'google' | 'facebook') => {
+	const handleSignIn = async (provider: 'github' | 'google') => {
 		setIsSigningIn(provider);
 		try {
 			await signIn.social({
@@ -106,21 +106,6 @@ export function MultiAuthButton() {
 				)}
 				<span className='hidden sm:inline'>Google</span>
 				<span className='sm:hidden'>GO</span>
-			</Button>
-			<Button
-				onClick={() => handleSignIn('facebook')}
-				variant='outline'
-				size='sm'
-				disabled={isSigningIn !== null}
-				className='flex-1 justify-center min-w-0'
-			>
-				{isSigningIn === 'facebook' ? (
-					<div className='h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
-				) : (
-					<FacebookIcon className='h-4 w-4 mr-2' />
-				)}
-				<span className='hidden sm:inline'>Facebook</span>
-				<span className='sm:hidden'>FB</span>
 			</Button>
 		</div>
 	);

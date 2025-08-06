@@ -29,7 +29,7 @@ function ChatComponent() {
 		if (urlConversationId !== conversationId) {
 			setConversationId(urlConversationId);
 		}
-	}, []);
+	}, []); // Initialize once
 
 	// Listen for URL changes (e.g., when user clicks back/forward)
 	useEffect(() => {
@@ -54,6 +54,45 @@ function ChatComponent() {
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
 
+	// Resizable panels state
+	const [sidebarWidth, setSidebarWidth] = useState(300); // sidebar width in pixels
+	const [chatWidth, setChatWidth] = useState(50); // chat width as percentage of remaining space
+	const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
+	const [isDraggingChat, setIsDraggingChat] = useState(false);
+	const [isMobile, setIsMobile] = useState(false);
+
+	// Check if mobile viewport
+	useEffect(() => {
+		const checkMobile = () => {
+			setIsMobile(window.innerWidth < 768); // md breakpoint
+		};
+
+		checkMobile();
+		window.addEventListener('resize', checkMobile);
+		return () => window.removeEventListener('resize', checkMobile);
+	}, []);
+
+	// Load saved panel sizes from localStorage
+	useEffect(() => {
+		const savedSidebarWidth = localStorage.getItem('sidebarWidth');
+		const savedChatWidth = localStorage.getItem('chatWidth');
+		if (savedSidebarWidth) {
+			setSidebarWidth(parseInt(savedSidebarWidth));
+		}
+		if (savedChatWidth) {
+			setChatWidth(parseInt(savedChatWidth));
+		}
+	}, []);
+
+	// Save panel sizes to localStorage when they change
+	useEffect(() => {
+		localStorage.setItem('sidebarWidth', sidebarWidth.toString());
+	}, [sidebarWidth]);
+
+	useEffect(() => {
+		localStorage.setItem('chatWidth', chatWidth.toString());
+	}, [chatWidth]);
+
 	// Scroll to bottom when messages change
 	const scrollToBottom = () => {
 		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -62,6 +101,87 @@ function ChatComponent() {
 	useEffect(() => {
 		scrollToBottom();
 	}, [messages]);
+
+	// Mouse event handlers for resizing panels
+	const handleSidebarMouseDown = (e: React.MouseEvent) => {
+		if (isMobile) return; // Disable on mobile
+		e.preventDefault();
+		setIsDraggingSidebar(true);
+	};
+
+	const handleChatMouseDown = (e: React.MouseEvent) => {
+		e.preventDefault();
+		setIsDraggingChat(true);
+	};
+
+	// Touch event handlers for mobile support
+	const handleSidebarTouchStart = (e: React.TouchEvent) => {
+		if (isMobile) return; // Disable on mobile
+		e.preventDefault();
+		setIsDraggingSidebar(true);
+	};
+
+	const handleChatTouchStart = (e: React.TouchEvent) => {
+		e.preventDefault();
+		setIsDraggingChat(true);
+	};
+
+	useEffect(() => {
+		const getClientX = (e: MouseEvent | TouchEvent): number => {
+			return 'touches' in e ? e.touches[0].clientX : e.clientX;
+		};
+
+		const handleMove = (e: MouseEvent | TouchEvent) => {
+			const clientX = getClientX(e);
+
+			if (isDraggingSidebar && !isMobile) {
+				const newWidth = Math.max(200, Math.min(600, clientX));
+				setSidebarWidth(newWidth);
+			}
+			if (isDraggingChat) {
+				const containerRect = document
+					.querySelector('.resizable-container')
+					?.getBoundingClientRect();
+				if (containerRect) {
+					// On mobile, sidebar doesn't affect layout since it overlays
+					const sidebarSpace = !isMobile && sidebarOpen ? sidebarWidth + 4 : 0; // +4 for resize handle width
+					const remainingWidth = containerRect.width - sidebarSpace;
+					const relativeX = clientX - containerRect.left - sidebarSpace;
+					const newChatWidth = Math.max(
+						25,
+						Math.min(75, (relativeX / remainingWidth) * 100),
+					);
+					setChatWidth(newChatWidth);
+				}
+			}
+		};
+
+		const handleEnd = () => {
+			setIsDraggingSidebar(false);
+			setIsDraggingChat(false);
+		};
+
+		if (isDraggingSidebar || isDraggingChat) {
+			// Mouse events
+			document.addEventListener('mousemove', handleMove);
+			document.addEventListener('mouseup', handleEnd);
+			// Touch events
+			document.addEventListener('touchmove', handleMove, { passive: false });
+			document.addEventListener('touchend', handleEnd);
+
+			document.body.style.cursor = 'col-resize';
+			document.body.style.userSelect = 'none';
+
+			return () => {
+				document.removeEventListener('mousemove', handleMove);
+				document.removeEventListener('mouseup', handleEnd);
+				document.removeEventListener('touchmove', handleMove);
+				document.removeEventListener('touchend', handleEnd);
+				document.body.style.cursor = 'default';
+				document.body.style.userSelect = 'auto';
+			};
+		}
+	}, [isDraggingSidebar, isDraggingChat, sidebarWidth, sidebarOpen, isMobile]);
 
 	// Custom message sending function that handles conversations
 	const sendMessage = async (input: { text: string }) => {
@@ -104,7 +224,8 @@ function ChatComponent() {
 			if (newConversationId && !conversationId) {
 				setConversationId(newConversationId);
 				setSidebarRefreshTrigger((prev) => prev + 1); // Trigger sidebar refresh
-				router.push(`/?c=${newConversationId}`, { scroll: false });
+				// Use replace instead of push to avoid triggering popstate events
+				window.history.replaceState(null, '', `/?c=${newConversationId}`);
 			}
 
 			if (newGenerationId) {
@@ -117,7 +238,7 @@ function ChatComponent() {
 
 			// Create AI message with empty text
 			const aiMessage = {
-				id: crypto.randomUUID(),
+				id: newGenerationId || crypto.randomUUID(), // Use generation ID if available
 				role: 'assistant',
 				parts: [{ type: 'text', text: '' }],
 			};
@@ -177,9 +298,10 @@ function ChatComponent() {
 				],
 			};
 			setMessages((prev) => [...prev, errorMessage]);
+		} finally {
+			// Always reset generating state
+			setIsGenerating(false);
 		}
-
-		setIsGenerating(false);
 	};
 
 	const { data: session, isPending } = useSession();
@@ -187,22 +309,42 @@ function ChatComponent() {
 
 	// Load conversation details if we have a conversation ID
 	useEffect(() => {
-		// Always clear current state first to prevent stale data
-		setMessages([]);
-		setConversationTitle('');
-		setCurrentGenerationId('preview');
-		setIsGenerationComplete(false);
-		setIsGenerating(false);
+		if (!session?.user) {
+			// If no session, clear everything
+			setMessages([]);
+			setConversationTitle('');
+			setCurrentGenerationId('preview');
+			setIsGenerationComplete(false);
+			setIsGenerating(false);
+			return;
+		}
 
-		// Add a small delay to prevent rapid loading when switching conversations
-		const timeoutId = setTimeout(() => {
-			if (conversationId && session?.user) {
-				loadConversation(conversationId);
+		if (conversationId) {
+			// Don't clear state if we're generating to avoid interrupting the process
+			if (!isGenerating) {
+				// Clear current state before loading new conversation
+				setMessages([]);
+				setConversationTitle('');
+				setCurrentGenerationId('preview');
+				setIsGenerationComplete(false);
+
+				// Add a small delay to prevent rapid loading when switching conversations
+				const timeoutId = setTimeout(() => {
+					loadConversation(conversationId);
+				}, 100);
+
+				return () => clearTimeout(timeoutId);
 			}
-		}, 100);
-
-		return () => clearTimeout(timeoutId);
-	}, [conversationId, session]);
+		} else {
+			// No conversation ID - this is a new conversation state
+			if (!isGenerating) {
+				setMessages([]);
+				setConversationTitle('');
+				setCurrentGenerationId('preview');
+				setIsGenerationComplete(false);
+			}
+		}
+	}, [conversationId, session?.user]); // Removed isGenerating from deps to prevent clearing during generation
 
 	// Load a specific conversation
 	const loadConversation = async (convId: string) => {
@@ -263,10 +405,11 @@ function ChatComponent() {
 				(m: any) => m.role === 'assistant' && m.id === currentGenerationId,
 			);
 			if (currentGenMessage) {
-				return currentGenMessage.parts
+				const responseText = currentGenMessage.parts
 					.filter((part: any) => part.type === 'text')
 					.map((part: any) => part.text)
 					.join('');
+				return responseText;
 			}
 		}
 
@@ -275,21 +418,25 @@ function ChatComponent() {
 		if (aiMessages.length === 0) return '';
 
 		const latestMessage = aiMessages[aiMessages.length - 1];
-		return latestMessage.parts
+		const responseText = latestMessage.parts
 			.filter((part: any) => part.type === 'text')
 			.map((part: any) => part.text)
 			.join('');
+		return responseText;
 	};
-
 	const latestAIResponse = getLatestAIResponse();
 
 	const handleNewConversation = () => {
+		// Clear all conversation state
 		setConversationTitle('');
 		setMessages([]);
 		setConversationId(null);
 		setCurrentGenerationId('preview');
 		setIsGenerationComplete(false);
-		router.push('/');
+		setIsGenerating(false);
+
+		// Navigate to clean URL without conversation parameter
+		router.push('/', { scroll: false });
 	};
 
 	return (
@@ -489,19 +636,64 @@ function ChatComponent() {
 						<MultiAuthButton />
 					</div>
 				) : (
-					<div className='flex h-full bg-background/15'>
+					<div
+						className={`flex h-full bg-background/15 resizable-container ${
+							isDraggingSidebar || isDraggingChat ? 'dragging' : ''
+						}`}
+					>
 						{/* Conversation Sidebar */}
 						{sidebarOpen && (
-							<ConversationSidebar
-								currentConversationId={conversationId}
-								onConversationSelect={handleConversationSelect}
-								onNewConversation={handleNewConversation}
-								refreshTrigger={sidebarRefreshTrigger}
-							/>
+							<>
+								<div
+									className={`bg-background/30 border-r ${
+										isMobile
+											? 'absolute z-20 h-full w-80 max-w-[80vw] shadow-lg'
+											: 'relative'
+									}`}
+									style={!isMobile ? { width: `${sidebarWidth}px` } : {}}
+								>
+									<ConversationSidebar
+										currentConversationId={conversationId}
+										onConversationSelect={handleConversationSelect}
+										onNewConversation={handleNewConversation}
+										refreshTrigger={sidebarRefreshTrigger}
+									/>
+								</div>
+								{/* Sidebar Resize Handle - Desktop only */}
+								{!isMobile && (
+									<div
+										className='w-1 bg-border hover:bg-primary/50 cursor-col-resize transition-colors resize-handle relative group'
+										onMouseDown={handleSidebarMouseDown}
+										onTouchStart={handleSidebarTouchStart}
+									>
+										<div className='absolute inset-y-0 -left-1 -right-1 group-hover:bg-primary/20'></div>
+									</div>
+								)}
+								{/* Mobile overlay to close sidebar */}
+								{isMobile && (
+									<div
+										className='absolute inset-0 bg-black/20 z-10'
+										onClick={() => setSidebarOpen(false)}
+									/>
+								)}
+							</>
 						)}
 
 						{/* Left Side - Chat Interface */}
-						<div className='flex flex-col w-1/2 border-r h-full bg-background/25'>
+						<div
+							className='flex flex-col border-r h-full bg-background/25 relative z-0'
+							style={
+								!isMobile
+									? {
+											width: sidebarOpen
+												? `calc((100% - ${sidebarWidth}px - 4px) * ${
+														chatWidth / 100
+												  })`
+												: `${chatWidth}%`,
+									  }
+									: { width: `${chatWidth}%` }
+							}
+						>
 							{/* Chat Header */}
 							<div className='p-3 border-b bg-muted/15 flex-shrink-0'>
 								<div className='flex items-center justify-between'>
@@ -627,8 +819,20 @@ function ChatComponent() {
 							</div>
 						</div>
 
+						{/* Chat Resize Handle */}
+						<div
+							className='w-1 bg-border hover:bg-primary/50 cursor-col-resize transition-colors resize-handle relative group'
+							onMouseDown={handleChatMouseDown}
+							onTouchStart={handleChatTouchStart}
+						>
+							<div className='absolute inset-y-0 -left-1 -right-1 group-hover:bg-primary/20'></div>
+						</div>
+
 						{/* Right Side - Live Preview with Full Height */}
-						<div className='flex flex-col w-1/2 h-full bg-background/25'>
+						<div
+							className='flex flex-col h-full bg-background/25 relative z-0'
+							style={{ width: `${100 - chatWidth}%` }}
+						>
 							{/* Preview Header */}
 							<div className='p-3 border-b bg-muted/15 flex-shrink-0'>
 								<h2 className='text-sm font-semibold'>Live Preview</h2>

@@ -120,10 +120,11 @@ export async function POST(req: Request) {
 					?.map((part) => part.text)
 					?.join('') || '';
 
+			// Try a different approach - use user message instead of system message
 			promptMessages = [
 				{
-					role: 'system' as const,
-					content: `${editSystemPrompt}\n\nCurrent HTML:\n\`\`\`html\n${previousHtml}\n\`\`\`\n\nEdit request: ${editInstruction}`,
+					role: 'user' as const,
+					content: `Please edit the following HTML code according to this request: "${editInstruction}"\n\nCurrent HTML:\n\`\`\`html\n${previousHtml}\n\`\`\`\n\nReturn only the updated HTML code with no explanations or markdown formatting.`,
 				},
 			];
 		}
@@ -155,68 +156,51 @@ export async function POST(req: Request) {
 		let fullText = '';
 		const originalStream = result.toUIMessageStreamResponse();
 
-		// Create a transform stream to collect the text while streaming
-		const transformStream = new TransformStream({
-			transform(chunk, controller) {
-				// Parse chunk to extract text content
-				const chunkStr = new TextDecoder().decode(chunk);
-				const lines = chunkStr.split('\n');
-
-				for (const line of lines) {
-					if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-						try {
-							const data = JSON.parse(line.slice(6));
-							if (data.type === 'text' && data.text) {
-								fullText += data.text;
-							}
-						} catch (e) {
-							// Ignore parse errors
-						}
+		// Collect text from the async iterable stream
+		(async () => {
+			try {
+				let collectedText = '';
+				for await (const chunk of result.fullStream) {
+					if (chunk.type === 'text') {
+						collectedText += chunk.text;
+					} else if (chunk.type === 'error') {
+						console.error('Stream error chunk:', chunk);
 					}
 				}
 
-				controller.enqueue(chunk);
-			},
-			flush() {
-				// Save to database when streaming is complete
-				db.insert(aiGeneration)
-					.values({
-						id: generationId,
-						conversationId: currentConversation.id,
-						userId: session.user.id,
-						version,
-						userPrompt,
-						aiResponse: fullText,
-						previousHtml,
-						model: 'gemini-2.5-flash',
-						status: 'completed',
-						isCurrentVersion: true,
+				// Save to database after stream completes
+				await db.insert(aiGeneration).values({
+					id: generationId,
+					conversationId: currentConversation.id,
+					userId: session.user.id,
+					version,
+					userPrompt,
+					aiResponse: collectedText,
+					previousHtml,
+					model: 'gemini-2.5-flash',
+					status: 'completed',
+					isCurrentVersion: true,
+				});
+
+				// Update conversation's current generation ID
+				await db
+					.update(conversation)
+					.set({
+						currentGenerationId: generationId,
+						updatedAt: new Date(),
 					})
-					.then(() => {
-						// Update conversation's current generation ID
-						return db
-							.update(conversation)
-							.set({
-								currentGenerationId: generationId,
-								updatedAt: new Date(),
-							})
-							.where(eq(conversation.id, currentConversation.id));
-					})
-					.catch((dbError) => {
-						console.error('Error saving to database:', dbError);
-					});
-			},
-		});
+					.where(eq(conversation.id, currentConversation.id));
+			} catch (error) {
+				console.error('Error collecting and saving stream:', error);
+			}
+		})();
 
 		// Add conversation ID to response headers
 		originalStream.headers.set('X-Conversation-ID', currentConversation.id);
 		originalStream.headers.set('X-Generation-ID', generationId);
 
-		// Return the transformed stream
-		return new Response(originalStream.body?.pipeThrough(transformStream), {
-			headers: originalStream.headers,
-			status: originalStream.status,
-		});
+		// Return the original stream directly
+		return originalStream;
 	} catch (error) {
 		console.error('Chat API error:', error);
 		return new Response('Internal Server Error', { status: 500 });

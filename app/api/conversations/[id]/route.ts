@@ -120,3 +120,52 @@ export async function GET(
 		return new Response('Internal Server Error', { status: 500 });
 	}
 }
+
+export async function DELETE(
+	req: Request,
+	{ params }: { params: Promise<{ id: string }> },
+) {
+	try {
+		// Get the authenticated session
+		const session = await auth.api.getSession({
+			headers: await headers(),
+		});
+
+		if (!session) {
+			return new Response('Unauthorized', { status: 401 });
+		}
+
+		const conversationId = (await params).id;
+
+		// Verify the conversation belongs to the user before deleting
+		const conversationResult = await db
+			.select()
+			.from(conversation)
+			.where(
+				and(
+					eq(conversation.id, conversationId),
+					eq(conversation.userId, session.user.id),
+				),
+			)
+			.limit(1);
+
+		if (conversationResult.length === 0) {
+			return new Response('Conversation not found', { status: 404 });
+		}
+
+		// Delete the conversation (this will cascade delete all associated aiGeneration records)
+		await db
+			.delete(conversation)
+			.where(
+				and(
+					eq(conversation.id, conversationId),
+					eq(conversation.userId, session.user.id),
+				),
+			);
+
+		return new Response('Conversation deleted successfully', { status: 200 });
+	} catch (error) {
+		console.error('Delete conversation error:', error);
+		return new Response('Internal Server Error', { status: 500 });
+	}
+}
