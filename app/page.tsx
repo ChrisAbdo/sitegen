@@ -4,11 +4,16 @@ import { useChat } from '@ai-sdk/react';
 import { useState, useEffect, useRef } from 'react';
 import { useSession } from '@/lib/auth-client';
 import { AuthButton } from '@/components/auth-button';
+import { MultiAuthButton } from '@/components/multi-auth-button';
+import { ProfileDropdown } from '@/components/profile-dropdown';
+import { ConversationSidebar } from '@/components/conversation-sidebar';
 import { LivePreview } from '@/components/live-preview';
 import { AIMessage } from '@/components/ai-message';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useRouter } from 'next/navigation';
 import { Suspense } from 'react';
+import Link from 'next/link';
+import { Menu, X } from 'lucide-react';
 
 function ChatComponent() {
 	const [input, setInput] = useState('');
@@ -20,14 +25,34 @@ function ChatComponent() {
 
 	useEffect(() => {
 		const urlParams = new URLSearchParams(window.location.search);
-		setConversationId(urlParams.get('c'));
+		const urlConversationId = urlParams.get('c');
+		if (urlConversationId !== conversationId) {
+			setConversationId(urlConversationId);
+		}
 	}, []);
+
+	// Listen for URL changes (e.g., when user clicks back/forward)
+	useEffect(() => {
+		const handlePopState = () => {
+			const urlParams = new URLSearchParams(window.location.search);
+			const urlConversationId = urlParams.get('c');
+			if (urlConversationId !== conversationId) {
+				setConversationId(urlConversationId);
+			}
+		};
+
+		window.addEventListener('popstate', handlePopState);
+		return () => window.removeEventListener('popstate', handlePopState);
+	}, [conversationId]);
 
 	const [messages, setMessages] = useState<any[]>([]);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [currentGenerationId, setCurrentGenerationId] =
 		useState<string>('preview');
 	const [isGenerationComplete, setIsGenerationComplete] = useState(false);
+	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+	const [sidebarOpen, setSidebarOpen] = useState(true);
+	const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
 
 	// Scroll to bottom when messages change
 	const scrollToBottom = () => {
@@ -47,13 +72,14 @@ function ChatComponent() {
 		setCurrentGenerationId('preview');
 
 		// Add user message immediately
+		// Create user message
 		const userMessage = {
-			id: Date.now().toString(),
+			id: crypto.randomUUID(),
 			role: 'user',
 			parts: [{ type: 'text', text: input.text }],
-		};
-
-		setMessages((prev) => [...prev, userMessage]);
+		}; // Get current messages and add the new user message
+		const updatedMessages = [...messages, userMessage];
+		setMessages(updatedMessages);
 
 		try {
 			const response = await fetch('/api/chat', {
@@ -62,7 +88,7 @@ function ChatComponent() {
 					'Content-Type': 'application/json',
 				},
 				body: JSON.stringify({
-					messages: [...messages, userMessage],
+					messages: updatedMessages,
 					conversationId: conversationId || undefined,
 				}),
 			});
@@ -76,6 +102,8 @@ function ChatComponent() {
 			const newGenerationId = response.headers.get('X-Generation-ID');
 
 			if (newConversationId && !conversationId) {
+				setConversationId(newConversationId);
+				setSidebarRefreshTrigger((prev) => prev + 1); // Trigger sidebar refresh
 				router.push(`/?c=${newConversationId}`, { scroll: false });
 			}
 
@@ -89,7 +117,7 @@ function ChatComponent() {
 
 			// Create AI message with empty text
 			const aiMessage = {
-				id: (Date.now() + 1).toString(),
+				id: crypto.randomUUID(),
 				role: 'assistant',
 				parts: [{ type: 'text', text: '' }],
 			};
@@ -139,7 +167,7 @@ function ChatComponent() {
 			console.error('Error sending message:', error);
 			// Add error message
 			const errorMessage = {
-				id: (Date.now() + 1).toString(),
+				id: crypto.randomUUID(),
 				role: 'assistant',
 				parts: [
 					{
@@ -159,28 +187,94 @@ function ChatComponent() {
 
 	// Load conversation details if we have a conversation ID
 	useEffect(() => {
-		if (conversationId && session?.user) {
-			fetch(`/api/conversations/${conversationId}`)
-				.then((res) => res.json())
-				.then((data) => {
-					if (data.title) {
-						setConversationTitle(data.title);
-					}
-				})
-				.catch(console.error);
-		} else if (!conversationId) {
-			// Clear title when no conversation ID
-			setConversationTitle('');
-		}
+		// Always clear current state first to prevent stale data
+		setMessages([]);
+		setConversationTitle('');
+		setCurrentGenerationId('preview');
+		setIsGenerationComplete(false);
+		setIsGenerating(false);
+
+		// Add a small delay to prevent rapid loading when switching conversations
+		const timeoutId = setTimeout(() => {
+			if (conversationId && session?.user) {
+				loadConversation(conversationId);
+			}
+		}, 100);
+
+		return () => clearTimeout(timeoutId);
 	}, [conversationId, session]);
+
+	// Load a specific conversation
+	const loadConversation = async (convId: string) => {
+		// Don't load if we're currently generating to avoid conflicts
+		if (isGenerating) {
+			return;
+		}
+
+		try {
+			const response = await fetch(`/api/conversations/${convId}`);
+			if (response.ok) {
+				const data = await response.json();
+				setConversationTitle(data.title || '');
+
+				// Load the conversation messages as they were saved
+				// The API should return messages in the correct order already
+				const rawMessages = data.messages || [];
+
+				// Ensure all messages have unique IDs to prevent React key conflicts
+				const messagesWithUniqueIds = rawMessages.map((message: any) => ({
+					...message,
+					id: message.id || crypto.randomUUID(),
+				}));
+
+				setMessages(messagesWithUniqueIds);
+				if (data.currentGeneration) {
+					setCurrentGenerationId(data.currentGeneration.id);
+					setIsGenerationComplete(true);
+				} else {
+					setCurrentGenerationId('preview');
+					setIsGenerationComplete(false);
+				}
+			}
+		} catch (error) {
+			console.error('Error loading conversation:', error);
+		}
+	};
+
+	// Handle conversation selection from sidebar
+	const handleConversationSelect = (convId: string) => {
+		// Don't switch conversations while generating
+		if (isGenerating) {
+			return;
+		}
+
+		if (convId !== conversationId) {
+			setConversationId(convId);
+			// Update URL without page reload
+			router.push(`/?c=${convId}`, { scroll: false });
+		}
+	};
 
 	// Extract the most recent AI response for preview
 	const getLatestAIResponse = () => {
+		// If we have a specific current generation ID, prioritize that
+		if (currentGenerationId && currentGenerationId !== 'preview') {
+			const currentGenMessage = messages.find(
+				(m: any) => m.role === 'assistant' && m.id === currentGenerationId,
+			);
+			if (currentGenMessage) {
+				return currentGenMessage.parts
+					.filter((part: any) => part.type === 'text')
+					.map((part: any) => part.text)
+					.join('');
+			}
+		}
+
+		// Fallback to the latest AI message
 		const aiMessages = messages.filter((m: any) => m.role === 'assistant');
 		if (aiMessages.length === 0) return '';
 
 		const latestMessage = aiMessages[aiMessages.length - 1];
-
 		return latestMessage.parts
 			.filter((part: any) => part.type === 'text')
 			.map((part: any) => part.text)
@@ -299,13 +393,25 @@ function ChatComponent() {
 
 			{/* Fixed Header */}
 			<header className='flex items-center justify-between p-4 border-b bg-background/80 backdrop-blur-sm flex-shrink-0 z-10 relative'>
-				<div className='flex items-center gap-4'>
+				<div className='flex items-center gap-6'>
 					<div className='flex items-center gap-2'>
 						<img src='/globe.svg' alt='SiteGen Logo' className='w-6 h-6' />
-						<h1 className='text-xl font-bold'>
-							{conversationTitle || 'SiteGen'}
-						</h1>
+						<h1 className='text-xl font-bold'>SiteGen</h1>
 					</div>
+					<nav className='hidden md:flex items-center gap-4'>
+						<Link
+							href='/docs'
+							className='text-sm text-muted-foreground hover:text-foreground transition-colors'
+						>
+							Docs
+						</Link>
+						<Link
+							href='/about'
+							className='text-sm text-muted-foreground hover:text-foreground transition-colors'
+						>
+							About Us
+						</Link>
+					</nav>
 					{conversationId && (
 						<button
 							onClick={handleNewConversation}
@@ -316,14 +422,53 @@ function ChatComponent() {
 					)}
 				</div>
 				<div className='flex items-center gap-3'>
+					{/* Mobile menu button */}
+					<button
+						onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+						className='md:hidden p-2 hover:bg-muted rounded-md'
+					>
+						{mobileMenuOpen ? (
+							<X className='w-4 h-4' />
+						) : (
+							<Menu className='w-4 h-4' />
+						)}
+					</button>
 					<ThemeToggle />
 					{session?.user && (
-						<span className='text-sm font-medium text-foreground'>
-							{session.user.name}
-						</span>
+						<ProfileDropdown
+							user={{
+								id: session.user.id,
+								name: session.user.name,
+								email: session.user.email,
+								image: session.user.image,
+								emailVerified: session.user.emailVerified,
+								createdAt: new Date(session.user.createdAt),
+							}}
+						/>
 					)}
-					<AuthButton />
 				</div>
+
+				{/* Mobile Navigation Menu */}
+				{mobileMenuOpen && (
+					<div className='absolute top-full left-0 right-0 bg-background border-b md:hidden'>
+						<nav className='flex flex-col p-4 gap-4'>
+							<Link
+								href='/docs'
+								className='text-sm text-muted-foreground hover:text-foreground transition-colors'
+								onClick={() => setMobileMenuOpen(false)}
+							>
+								Docs
+							</Link>
+							<Link
+								href='/about'
+								className='text-sm text-muted-foreground hover:text-foreground transition-colors'
+								onClick={() => setMobileMenuOpen(false)}
+							>
+								About Us
+							</Link>
+						</nav>
+					</div>
+				)}
 			</header>
 
 			{/* Main Content - Take up remaining viewport height */}
@@ -339,22 +484,40 @@ function ChatComponent() {
 							<h2 className='text-2xl font-bold'>Welcome to SiteGen</h2>
 						</div>
 						<p className='mb-8 text-muted-foreground'>
-							Sign in with GitHub to start generating websites with AI
+							Sign in to start generating websites with AI
 						</p>
-						<AuthButton />
+						<MultiAuthButton />
 					</div>
 				) : (
 					<div className='flex h-full bg-background/15'>
+						{/* Conversation Sidebar */}
+						{sidebarOpen && (
+							<ConversationSidebar
+								currentConversationId={conversationId}
+								onConversationSelect={handleConversationSelect}
+								onNewConversation={handleNewConversation}
+								refreshTrigger={sidebarRefreshTrigger}
+							/>
+						)}
+
 						{/* Left Side - Chat Interface */}
 						<div className='flex flex-col w-1/2 border-r h-full bg-background/25'>
 							{/* Chat Header */}
 							<div className='p-3 border-b bg-muted/15 flex-shrink-0'>
-								<p className='text-sm text-muted-foreground'>
-									Welcome back, <strong>{session.user.name}</strong>!
-									{conversationId
-										? ' Continue editing your website.'
-										: ' Describe the website you want to create.'}
-								</p>
+								<div className='flex items-center justify-between'>
+									<p className='text-sm text-muted-foreground'>
+										Welcome back, <strong>{session.user.name}</strong>!
+										{conversationId
+											? ` Continue editing your website.`
+											: ' Start a new conversation.'}
+									</p>
+									<button
+										onClick={() => setSidebarOpen(!sidebarOpen)}
+										className='text-xs px-2 py-1 hover:bg-muted rounded'
+									>
+										{sidebarOpen ? 'Hide' : 'Show'} Conversations
+									</button>
+								</div>
 							</div>
 
 							{/* Messages Container - Scrollable independently */}

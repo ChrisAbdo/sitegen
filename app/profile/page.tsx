@@ -461,7 +461,28 @@ export default function ProfilePage() {
 														</span>
 													</div>
 													<p className='text-sm font-medium mb-2 line-clamp-2'>
-														{generation.userPrompt}
+														{(() => {
+															try {
+																// Try to parse the userPrompt as JSON first
+																const parsed = JSON.parse(
+																	generation.userPrompt,
+																);
+																if (Array.isArray(parsed)) {
+																	// Find the first user message
+																	const userMessage = parsed.find(
+																		(msg: any) => msg.role === 'user',
+																	);
+																	if (userMessage?.parts?.[0]?.text) {
+																		return `User Request: ${userMessage.parts[0].text}`;
+																	}
+																}
+																// If it's already a simple string, use it as is
+																return `User Request: ${generation.userPrompt}`;
+															} catch {
+																// If parsing fails, assume it's already a simple string
+																return `User Request: ${generation.userPrompt}`;
+															}
+														})()}
 													</p>
 													<div className='flex items-center gap-4 text-xs text-muted-foreground'>
 														<div className='flex items-center gap-1'>
