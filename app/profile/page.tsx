@@ -39,6 +39,7 @@ interface PreviewModalProps {
 	onClose: () => void;
 	htmlContent: string;
 	generationId: string;
+	onContentUpdated?: (generationId: string, newContent: string) => void;
 }
 
 function PreviewModal({
@@ -46,22 +47,48 @@ function PreviewModal({
 	onClose,
 	htmlContent,
 	generationId,
+	onContentUpdated,
 }: PreviewModalProps) {
 	const [isEditMode, setIsEditMode] = useState(false);
 	const [editedHtml, setEditedHtml] = useState('');
 	const [isSaving, setIsSaving] = useState(false);
 
+	// Extract HTML content from markdown code blocks if present
+	const extractHtml = (content: string) => {
+		const htmlMatch = content.match(/```html\s*([\s\S]*?)\s*```/);
+		if (htmlMatch) {
+			return htmlMatch[1].trim();
+		}
+		const generalMatch = content.match(/```\s*([\s\S]*?)\s*```/);
+		if (generalMatch) {
+			return generalMatch[1].trim();
+		}
+		return content.trim();
+	};
+
+	// Process the HTML content to extract actual HTML
+	const processedHtmlContent = extractHtml(htmlContent);
+
 	// Initialize editedHtml when the modal opens or htmlContent changes
 	useEffect(() => {
-		if (isOpen && htmlContent && !editedHtml) {
-			setEditedHtml(htmlContent);
+		if (isOpen && processedHtmlContent) {
+			setEditedHtml(processedHtmlContent);
+			setIsEditMode(false); // Reset edit mode when switching between generations
 		}
-	}, [isOpen, htmlContent, editedHtml]);
+	}, [isOpen, processedHtmlContent]);
+
+	// Reset state when modal closes
+	useEffect(() => {
+		if (!isOpen) {
+			setEditedHtml('');
+			setIsEditMode(false);
+		}
+	}, [isOpen]);
 
 	if (!isOpen) return null;
 
 	const handleDownload = () => {
-		const htmlToDownload = editedHtml || htmlContent;
+		const htmlToDownload = editedHtml || processedHtmlContent;
 		const blob = new Blob([htmlToDownload], { type: 'text/html' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
@@ -93,7 +120,10 @@ function PreviewModal({
 			if (response.ok) {
 				setEditedHtml(newHtml);
 				setIsEditMode(false);
-				// You might want to refresh the parent component here
+				// Notify parent component of the content update
+				if (onContentUpdated) {
+					onContentUpdated(generationId, newHtml);
+				}
 			} else {
 				console.error('Failed to save HTML:', response.status);
 				alert('Failed to save HTML. Please try again.');
@@ -174,7 +204,7 @@ function PreviewModal({
 						</>
 					) : (
 						<iframe
-							srcDoc={editedHtml || htmlContent}
+							srcDoc={editedHtml || processedHtmlContent}
 							className='w-full h-full border-0'
 							title='Website Preview'
 							sandbox='allow-scripts allow-same-origin'
@@ -230,6 +260,26 @@ export default function ProfilePage() {
 
 	const handlePreview = (generation: AiGeneration) => {
 		setSelectedGeneration(generation);
+	};
+
+	const handleContentUpdated = (generationId: string, newContent: string) => {
+		// Update the generations state with the new content
+		setGenerations((prev) =>
+			prev.map((generation) =>
+				generation.id === generationId
+					? { ...generation, aiResponse: `\`\`\`html\n${newContent}\n\`\`\`` }
+					: generation,
+			),
+		);
+
+		// Update the selected generation if it's the one being edited
+		if (selectedGeneration?.id === generationId) {
+			setSelectedGeneration((prev) =>
+				prev
+					? { ...prev, aiResponse: `\`\`\`html\n${newContent}\n\`\`\`` }
+					: null,
+			);
+		}
 	};
 
 	const formatDate = (dateString: string) => {
@@ -689,6 +739,7 @@ export default function ProfilePage() {
 				onClose={() => setSelectedGeneration(null)}
 				htmlContent={selectedGeneration?.aiResponse || ''}
 				generationId={selectedGeneration?.id || ''}
+				onContentUpdated={handleContentUpdated}
 			/>
 		</div>
 	);

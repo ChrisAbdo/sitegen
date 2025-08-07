@@ -1,7 +1,7 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSession } from '@/lib/auth-client';
 import { AuthButton } from '@/components/auth-button';
 import { MultiAuthButton } from '@/components/multi-auth-button';
@@ -391,7 +391,7 @@ function ChatComponent() {
 	};
 
 	// Extract the most recent AI response for preview
-	const getLatestAIResponse = () => {
+	const latestAIResponse = useMemo(() => {
 		// If we have a specific current generation ID, prioritize that
 		if (currentGenerationId && currentGenerationId !== 'preview') {
 			const currentGenMessage = messages.find(
@@ -402,6 +402,10 @@ function ChatComponent() {
 					.filter((part: any) => part.type === 'text')
 					.map((part: any) => part.text)
 					.join('');
+				console.log('📄 Getting AI response for current generation:', {
+					id: currentGenerationId,
+					preview: responseText.substring(0, 100) + '...',
+				});
 				return responseText;
 			}
 		}
@@ -415,9 +419,11 @@ function ChatComponent() {
 			.filter((part: any) => part.type === 'text')
 			.map((part: any) => part.text)
 			.join('');
+		console.log('📄 Getting latest AI response (fallback):', {
+			preview: responseText.substring(0, 100) + '...',
+		});
 		return responseText;
-	};
-	const latestAIResponse = getLatestAIResponse();
+	}, [messages, currentGenerationId]);
 
 	const handleNewConversation = () => {
 		// Clear all conversation state
@@ -441,22 +447,67 @@ function ChatComponent() {
 	};
 
 	const handleEditorSave = (newHtml: string) => {
+		console.log('🔄 Saving HTML changes...', {
+			newHtml: newHtml.substring(0, 100) + '...',
+			currentGenerationId,
+			messagesLength: messages.length,
+		});
+
 		// Update the messages with the new HTML
 		setMessages((prevMessages) => {
 			const newMessages = [...prevMessages];
-			// Find the latest AI message and update it
-			for (let i = newMessages.length - 1; i >= 0; i--) {
-				if (newMessages[i].role === 'assistant') {
-					newMessages[i].parts = [{ type: 'text', text: newHtml }];
-					break;
+			let updated = false;
+
+			// Find the AI message with the current generation ID and update it
+			if (currentGenerationId && currentGenerationId !== 'preview') {
+				const messageIndex = newMessages.findIndex(
+					(m: any) => m.role === 'assistant' && m.id === currentGenerationId,
+				);
+				if (messageIndex !== -1) {
+					newMessages[messageIndex] = {
+						...newMessages[messageIndex],
+						parts: [{ type: 'text', text: newHtml }],
+					};
+					updated = true;
+					console.log(
+						'✅ Updated message for generation ID:',
+						currentGenerationId,
+						'at index:',
+						messageIndex,
+					);
 				}
 			}
+
+			if (!updated) {
+				// Fallback: Find the latest AI message and update it
+				for (let i = newMessages.length - 1; i >= 0; i--) {
+					if (newMessages[i].role === 'assistant') {
+						newMessages[i] = {
+							...newMessages[i],
+							parts: [{ type: 'text', text: newHtml }],
+						};
+						console.log('✅ Updated latest AI message at index:', i);
+						updated = true;
+						break;
+					}
+				}
+			}
+
+			if (updated) {
+				console.log(
+					'📊 Messages updated successfully. New length:',
+					newMessages.length,
+				);
+			} else {
+				console.warn('⚠️ No AI message found to update!');
+			}
+
 			return newMessages;
 		});
-		// Don't close the editor after saving - keep it open
-		// setIsEditorExpanded(false);
+
 		// Update the current editing HTML to reflect the saved changes
 		setCurrentEditingHtml(newHtml);
+		console.log('💾 HTML save completed');
 	};
 
 	const handleEditorClose = () => {
@@ -714,6 +765,7 @@ function ChatComponent() {
 							<div className='flex-1 overflow-hidden'>
 								{latestAIResponse ? (
 									<LivePreview
+										key={`${currentGenerationId}-${latestAIResponse.length}`}
 										htmlContent={latestAIResponse}
 										generationId={currentGenerationId}
 										isGenerationComplete={isGenerationComplete}
@@ -1063,6 +1115,7 @@ function ChatComponent() {
 							<div className='flex-1 overflow-hidden'>
 								{latestAIResponse ? (
 									<LivePreview
+										key={`${currentGenerationId}-${latestAIResponse.length}`}
 										htmlContent={latestAIResponse}
 										generationId={currentGenerationId}
 										isGenerationComplete={isGenerationComplete}

@@ -356,6 +356,7 @@ export function LivePreview({
 				<div className='h-full p-1'>
 					<div className='h-full rounded border bg-background overflow-hidden'>
 						<iframe
+							key={`preview-${generationId}-${htmlContent.length}`}
 							srcDoc={editedHtml || extractedHtml}
 							className='w-full h-full border-0'
 							title={`Preview of generation ${generationId}`}
