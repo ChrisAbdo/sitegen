@@ -32,7 +32,7 @@ function FloatingChat({ className = '' }: FloatingChatProps) {
 			id: '1',
 			role: 'assistant',
 			content:
-				"Hi! I'm your navigation assistant 🧭\n\nI can help you:\n• Navigate: 'go to profile', 'go to settings'\n• Go back: 'go back', 'back'\n• Change theme: 'change theme', 'dark mode'\n\nTry asking me anything!",
+				"Hi! I'm your navigation assistant 🧭\n\nI can help you:\n• Website: 'create a website for...', 'deploy', 'edit'\n• Navigate: 'go to profile', 'go to settings'\n• Go back: 'go back', 'back'\n• Change theme: 'change theme', 'dark mode'\n\nTry asking me anything!",
 			timestamp: new Date(),
 		},
 	]);
@@ -98,17 +98,17 @@ function FloatingChat({ className = '' }: FloatingChatProps) {
 		const handleMouseMove = (e: MouseEvent) => {
 			if (!isDragging) return;
 
-			// Dynamic bounds based on current window size
-			const windowWidth = isMinimized ? 320 : 320; // Width stays the same
-			const windowHeight = isMinimized ? 48 : 384; // Height changes when minimized
+			// Calculate boundaries based on current state
+			const chatWidth = 320;
+			const chatHeight = isMinimized ? 48 : 384; // 48px for minimized, 384px for full
 
 			const newX = Math.max(
 				0,
-				Math.min(window.innerWidth - windowWidth, e.clientX - dragOffset.x),
+				Math.min(window.innerWidth - chatWidth, e.clientX - dragOffset.x),
 			);
 			const newY = Math.max(
 				0,
-				Math.min(window.innerHeight - windowHeight, e.clientY - dragOffset.y),
+				Math.min(window.innerHeight - chatHeight, e.clientY - dragOffset.y),
 			);
 			setPosition({ x: newX, y: newY });
 		};
@@ -129,7 +129,13 @@ function FloatingChat({ className = '' }: FloatingChatProps) {
 	}, [isDragging, dragOffset, isMinimized]);
 
 	const resetPosition = () => {
-		setPosition({ x: 20, y: 20 });
+		if (isMinimized) {
+			// When minimized, move to top-right corner for less screen clutter
+			setPosition({ x: window.innerWidth - 340, y: 20 });
+		} else {
+			// When full-size, move to bottom-left for better chat experience
+			setPosition({ x: 20, y: 20 });
+		}
 	};
 
 	const goBack = () => {
@@ -155,15 +161,70 @@ function FloatingChat({ className = '' }: FloatingChatProps) {
 
 		setMessages((prev) => [...prev, newMessage]);
 		const userInput = inputValue.toLowerCase();
+		const originalInput = inputValue;
 		setInputValue('');
 
-		// Process navigation commands locally
+		// Check if this is a website generation/deployment command
+		const isWebsiteCommand =
+			userInput.includes('generate') ||
+			userInput.includes('create') ||
+			userInput.includes('make') ||
+			userInput.includes('build') ||
+			userInput.includes('deploy') ||
+			userInput.includes('publish') ||
+			userInput.includes('download') ||
+			userInput.includes('edit') ||
+			userInput.includes('change') ||
+			userInput.includes('modify') ||
+			userInput.includes('website') ||
+			userInput.includes('site') ||
+			userInput.includes('page');
+
 		let assistantResponse = '';
 		let navigationAction = false;
 
 		try {
-			// Handle navigation commands
-			if (userInput.includes('go back') || userInput === 'back') {
+			// Handle website generation/deployment commands
+			if (isWebsiteCommand) {
+				// Call the agent API for website commands
+				const response = await fetch('/api/agent', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						message: originalInput,
+					}),
+				});
+
+				const data = await response.json();
+
+				if (response.ok) {
+					switch (data.action) {
+						case 'generate':
+							assistantResponse = `✨ ${data.message}\n\n🎯 I've generated your website! You can see it in the main chat interface.`;
+							break;
+						case 'deploy':
+							assistantResponse = `🚀 ${data.message}\n\n🌐 Your site is now live at: ${data.deployUrl}`;
+							break;
+						case 'both':
+							assistantResponse = `🎉 ${data.message}\n\n🌐 Your site is live at: ${data.deployUrl}`;
+							break;
+						case 'download':
+							assistantResponse = `💾 ${data.message}\n\n📄 Check the main interface to download your HTML file.`;
+							break;
+						case 'edit':
+							assistantResponse = `✏️ ${data.message}\n\n🔄 Your website has been updated! Check the main interface.`;
+							break;
+						default:
+							assistantResponse = data.message || 'Website command processed!';
+					}
+				} else {
+					assistantResponse = `❌ ${
+						data.error || 'Sorry, there was an error processing your request.'
+					}`;
+				}
+			}
+			// Handle navigation commands locally
+			else if (userInput.includes('go back') || userInput === 'back') {
 				if (goBack()) {
 					assistantResponse = '⬅️ Going back to the previous page!';
 					navigationAction = true;
@@ -243,6 +304,12 @@ function FloatingChat({ className = '' }: FloatingChatProps) {
 			} else if (userInput.includes('help') || userInput.includes('commands')) {
 				assistantResponse = `🆘 Here's what I can help you with:
 
+**Website Commands:**
+• "create a website for..." - Generate new websites
+• "edit the website..." - Modify existing content
+• "deploy my website" - Publish your site online
+• "download my website" - Get HTML file
+
 **Navigation:**
 • "go to profile" - Visit your profile
 • "go to settings" - Open settings
@@ -258,10 +325,11 @@ function FloatingChat({ className = '' }: FloatingChatProps) {
 			} else {
 				// Default response for unrecognized commands
 				assistantResponse = `🤔 I didn't understand that command. Try:
-• "go to [page]" - Navigate somewhere
-• "go back" - Return to previous page
-• "change theme" - Switch themes
-• "help" - See all commands`;
+
+**Website:** "create a website for my business"
+**Navigation:** "go to [page]" or "go back"
+**Theme:** "change theme"
+**Help:** "help" - See all commands`;
 			}
 
 			const assistantMessage: Message = {
@@ -311,13 +379,23 @@ function FloatingChat({ className = '' }: FloatingChatProps) {
 					onMouseDown={handleMouseDown}
 				>
 					{/* Header */}
-					<div className='chat-header flex items-center justify-between p-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg cursor-grab active:cursor-grabbing'>
+					<div
+						className={`chat-header flex items-center justify-between bg-gradient-to-r from-blue-600 to-purple-600 text-white cursor-grab active:cursor-grabbing ${
+							isMinimized ? 'p-2 rounded-lg' : 'p-3 rounded-t-lg'
+						}`}
+					>
 						<div className='flex items-center gap-2'>
 							<Bot className='w-4 h-4' />
-							<span className='font-medium text-sm'>Navigation Assistant</span>
-							<span className='text-xs opacity-75'>
-								• {getCurrentPageContext()}
+							<span className='font-medium text-sm'>
+								{isMinimized
+									? `Assistant • ${getCurrentPageContext()}`
+									: 'Navigation Assistant'}
 							</span>
+							{!isMinimized && (
+								<span className='text-xs opacity-75'>
+									• {getCurrentPageContext()}
+								</span>
+							)}
 						</div>
 						<div className='flex items-center gap-1'>
 							<button
