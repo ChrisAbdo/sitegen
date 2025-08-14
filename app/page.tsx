@@ -195,14 +195,17 @@ function ChatComponent() {
 		setMessages(updatedMessages);
 
 		try {
-			const response = await fetch('/api/chat', {
+			// Use the agent system instead of basic chat
+			const response = await fetch('/api/agent', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
 				},
 				body: JSON.stringify({
-					messages: updatedMessages,
+					message: input.text,
 					conversationId: conversationId || undefined,
+					currentGenerationId:
+						currentGenerationId !== 'preview' ? currentGenerationId : undefined,
 				}),
 			});
 
@@ -210,70 +213,46 @@ function ChatComponent() {
 				throw new Error(`HTTP error! status: ${response.status}`);
 			}
 
-			// Check for new conversation ID in response headers
-			const newConversationId = response.headers.get('X-Conversation-ID');
-			const newGenerationId = response.headers.get('X-Generation-ID');
+			// Parse the JSON response from the agent
+			const data = await response.json();
 
-			if (newConversationId && !conversationId) {
-				setConversationId(newConversationId);
-				setSidebarRefreshTrigger((prev) => prev + 1); // Trigger sidebar refresh
-				// Use replace instead of push to avoid triggering popstate events
-				window.history.replaceState(null, '', `/?c=${newConversationId}`);
+			// Handle different agent responses
+			let aiResponseText = '';
+
+			if (data.action === 'generate' || data.action === 'edit') {
+				aiResponseText = data.message;
+
+				// Update conversation ID and generation ID if provided
+				if (data.conversationId && !conversationId) {
+					setConversationId(data.conversationId);
+					setSidebarRefreshTrigger((prev) => prev + 1);
+					window.history.replaceState(null, '', `/?c=${data.conversationId}`);
+				}
+
+				if (data.generationId) {
+					setCurrentGenerationId(data.generationId);
+				}
+			} else if (data.action === 'deploy') {
+				aiResponseText = data.message;
+				if (data.deployUrl) {
+					aiResponseText += `\n\nYour website is now live at: ${data.deployUrl}`;
+				}
+			} else if (data.action === 'download') {
+				aiResponseText = data.message;
+				// The download should have started automatically via the agent API
+			} else {
+				aiResponseText = data.message || 'Action completed successfully!';
 			}
 
-			if (newGenerationId) {
-				setCurrentGenerationId(newGenerationId);
-			}
-
-			// Handle streaming response
-			const reader = response.body?.getReader();
-			let fullResponse = '';
-
-			// Create AI message with empty text
+			// Create AI message with the response
 			const aiMessage = {
-				id: newGenerationId || crypto.randomUUID(), // Use generation ID if available
+				id: data.generationId || crypto.randomUUID(),
 				role: 'assistant',
-				parts: [{ type: 'text', text: '' }],
+				parts: [{ type: 'text', text: aiResponseText }],
 			};
 
-			// Add empty AI message to show streaming
+			// Add AI message
 			setMessages((prev) => [...prev, aiMessage]);
-
-			if (reader) {
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-
-					const chunk = new TextDecoder().decode(value);
-
-					const lines = chunk.split('\n');
-
-					for (const line of lines) {
-						if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-							try {
-								const data = JSON.parse(line.slice(6));
-								if (data.type === 'text' && data.text) {
-									fullResponse += data.text;
-
-									// Update the AI message in real-time
-									setMessages((prev) =>
-										prev.map((msg) =>
-											msg.id === aiMessage.id
-												? {
-														...msg,
-														parts: [{ type: 'text', text: fullResponse }],
-												  }
-												: msg,
-										),
-									);
-								}
-							} catch (e) {
-								// Ignore parse errors
-							}
-						}
-					}
-				}
-			}
 
 			// Mark generation as complete
 			setIsGenerationComplete(true);
