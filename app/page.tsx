@@ -183,17 +183,13 @@ function ChatComponent() {
 	const sendMessage = async (input: { text: string }) => {
 		if (isGenerating) return;
 
-		setIsGenerating(true);
-		setIsGenerationComplete(false);
-		setCurrentGenerationId('preview');
-
+		// Don't reset states immediately - let the agent determine the action first
 		// Add user message immediately
-		// Create user message
 		const userMessage = {
 			id: crypto.randomUUID(),
 			role: 'user',
 			parts: [{ type: 'text', text: input.text }],
-		}; // Get current messages and add the new user message
+		};
 		const updatedMessages = [...messages, userMessage];
 		setMessages(updatedMessages);
 
@@ -212,19 +208,29 @@ function ChatComponent() {
 				}),
 			});
 
+			console.log('Agent request:', {
+				message: input.text,
+				conversationId,
+				currentGenerationId,
+			});
+
 			if (!response.ok) {
 				throw new Error(`HTTP error! status: ${response.status}`);
 			}
 
 			// Parse the JSON response from the agent
 			const data = await response.json();
+			console.log('Agent response:', data);
 
-			// Handle different agent responses
+			// Handle different agent responses with appropriate state management
 			let aiResponseText = '';
 
-			if (data.action === 'generate' || data.action === 'edit') {
-				// For generate/edit, store the HTML content as the message text
-				// so the preview can display it
+			if (data.action === 'generate') {
+				// Only for NEW generation, set generating states
+				setIsGenerating(true);
+				setIsGenerationComplete(false);
+				setCurrentGenerationId('preview');
+
 				aiResponseText = data.html || data.message;
 
 				// Update conversation ID and generation ID if provided
@@ -237,13 +243,32 @@ function ChatComponent() {
 				if (data.generationId) {
 					setCurrentGenerationId(data.generationId);
 				}
+
+				setIsGenerationComplete(true);
+				setIsGenerating(false);
+			} else if (data.action === 'edit') {
+				// For edit, DON'T reset generation states - keep existing website visible
+				aiResponseText = data.html || data.message;
+
+				// Update conversation ID if this creates a new conversation
+				if (data.conversationId && !conversationId) {
+					setConversationId(data.conversationId);
+					setSidebarRefreshTrigger((prev) => prev + 1);
+					window.history.replaceState(null, '', `/?c=${data.conversationId}`);
+				}
+
+				// Update generation ID if provided (new version)
+				if (data.generationId) {
+					setCurrentGenerationId(data.generationId);
+				}
 			} else if (data.action === 'deploy') {
-				// For deploy, show a success message in chat but trigger actual deployment in LivePreview
+				// For deploy, DON'T change any generation states - keep website visible
 				aiResponseText = data.message;
 
 				// Trigger deployment in LivePreview component by incrementing counter
 				setTriggerDeployment((prev) => prev + 1);
 			} else if (data.action === 'download') {
+				// For download, DON'T change any generation states
 				aiResponseText = data.message;
 
 				// Trigger the actual file download
@@ -262,18 +287,17 @@ function ChatComponent() {
 				}
 			} else {
 				aiResponseText = data.message || 'Action completed successfully!';
-			} // Create AI message with the response
+			}
+
+			// Create AI message with the response - ensure unique ID for each message
 			const aiMessage = {
-				id: data.generationId || crypto.randomUUID(),
+				id: crypto.randomUUID(), // Always use unique ID for chat messages
 				role: 'assistant',
 				parts: [{ type: 'text', text: aiResponseText }],
 			};
 
 			// Add AI message
 			setMessages((prev) => [...prev, aiMessage]);
-
-			// Mark generation as complete
-			setIsGenerationComplete(true);
 		} catch (error) {
 			console.error('Error sending message:', error);
 			// Add error message
@@ -283,15 +307,17 @@ function ChatComponent() {
 				parts: [
 					{
 						type: 'text',
-						text: 'Sorry, there was an error generating your website. Please try again.',
+						text: 'Sorry, there was an error processing your request. Please try again.',
 					},
 				],
 			};
 			setMessages((prev) => [...prev, errorMessage]);
-		} finally {
-			// Always reset generating state
+
+			// Reset generating states only if they were set
 			setIsGenerating(false);
 		}
+		// Note: No finally block that always resets isGenerating
+		// States are managed per action type above
 	};
 
 	const { data: session, isPending } = useSession();
