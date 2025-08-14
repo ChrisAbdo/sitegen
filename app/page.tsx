@@ -24,6 +24,9 @@ function ChatComponent() {
 	// Get conversation ID from URL
 	const [conversationId, setConversationId] = useState<string | null>(null);
 
+	// Add deployment trigger state
+	const [triggerDeployment, setTriggerDeployment] = useState(0);
+
 	useEffect(() => {
 		const urlParams = new URLSearchParams(window.location.search);
 		const urlConversationId = urlParams.get('c');
@@ -220,7 +223,9 @@ function ChatComponent() {
 			let aiResponseText = '';
 
 			if (data.action === 'generate' || data.action === 'edit') {
-				aiResponseText = data.message;
+				// For generate/edit, store the HTML content as the message text
+				// so the preview can display it
+				aiResponseText = data.html || data.message;
 
 				// Update conversation ID and generation ID if provided
 				if (data.conversationId && !conversationId) {
@@ -233,18 +238,31 @@ function ChatComponent() {
 					setCurrentGenerationId(data.generationId);
 				}
 			} else if (data.action === 'deploy') {
+				// For deploy, show a success message in chat but trigger actual deployment in LivePreview
 				aiResponseText = data.message;
-				if (data.deployUrl) {
-					aiResponseText += `\n\nYour website is now live at: ${data.deployUrl}`;
-				}
+
+				// Trigger deployment in LivePreview component by incrementing counter
+				setTriggerDeployment((prev) => prev + 1);
 			} else if (data.action === 'download') {
 				aiResponseText = data.message;
-				// The download should have started automatically via the agent API
+
+				// Trigger the actual file download
+				if (data.html && data.filename) {
+					const blob = new Blob([data.html], { type: 'text/html' });
+					const url = URL.createObjectURL(blob);
+					const a = document.createElement('a');
+					a.href = url;
+					a.download = data.filename;
+					document.body.appendChild(a);
+					a.click();
+					document.body.removeChild(a);
+					URL.revokeObjectURL(url);
+
+					aiResponseText += '\n\nDownload started!';
+				}
 			} else {
 				aiResponseText = data.message || 'Action completed successfully!';
-			}
-
-			// Create AI message with the response
+			} // Create AI message with the response
 			const aiMessage = {
 				id: data.generationId || crypto.randomUUID(),
 				role: 'assistant',
@@ -750,6 +768,7 @@ function ChatComponent() {
 										isGenerationComplete={isGenerationComplete}
 										isGenerating={isGenerating}
 										onExpandEditor={handleExpandEditor}
+										triggerDeployment={triggerDeployment}
 									/>
 								) : (
 									<div className='flex items-center justify-center h-full text-center p-4'>
@@ -1100,6 +1119,7 @@ function ChatComponent() {
 										isGenerationComplete={isGenerationComplete}
 										isGenerating={isGenerating}
 										onExpandEditor={handleExpandEditor}
+										triggerDeployment={triggerDeployment}
 									/>
 								) : (
 									<div className='flex items-center justify-center h-full text-center p-8'>

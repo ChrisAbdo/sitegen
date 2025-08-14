@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface LivePreviewProps {
 	htmlContent: string;
@@ -9,6 +9,7 @@ interface LivePreviewProps {
 	isGenerating?: boolean;
 	onHtmlUpdate?: (newHtml: string) => void;
 	onExpandEditor?: (isExpanded: boolean) => void;
+	triggerDeployment?: number;
 }
 
 export function LivePreview({
@@ -18,6 +19,7 @@ export function LivePreview({
 	isGenerating = false,
 	onHtmlUpdate,
 	onExpandEditor,
+	triggerDeployment = 0,
 }: LivePreviewProps) {
 	const [isDeploying, setIsDeploying] = useState(false);
 	const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
@@ -186,6 +188,13 @@ export function LivePreview({
 			setIsDeploying(false);
 		}
 	};
+
+	// Handle external deployment trigger from main chat
+	useEffect(() => {
+		if (triggerDeployment > 0) {
+			handleDeploy();
+		}
+	}, [triggerDeployment]);
 
 	return (
 		<div className='h-full flex flex-col'>
